@@ -73,8 +73,8 @@ Aplikacja ma angielski interfejs, więc w okienkach składniki mają angielskie 
 - **Dodanie składników** instaluje tylko nowe.
 - **Usunięcie składników albo zmiana Protona** buduje nowy prefiks. winetricks nie umie
   odinstalowywać, a zmiana Protona na istniejącym prefiksie go psuje. Stary prefiks zostaje jako
-  `~/Games/shared-prefix.backup-<data>`, razem z zapisami gier trzymanymi w środku. Usuń go sam,
-  gdy przestanie być potrzebny.
+  `~/Games/shared-prefix.backup-<data>`. Zapisy i ustawienia gier (folder użytkownika Windows) są
+  kopiowane do nowego prefiksu. Kopię usuń sam, gdy gry działają.
 
 ## Odinstalowanie
 

@@ -77,7 +77,9 @@ Running the app again:
 - **Add components** – installs only the newly checked ones.
 - **Remove components or change Proton** – winetricks cannot uninstall, and switching Proton
   versions back and forth breaks prefixes. The app rebuilds the prefix and first renames the old
-  one to `shared-prefix.backup-<date>` (saves of games stored in the prefix stay there).
+  one to `shared-prefix.backup-<date>`. The Windows user folder (`drive_c/users/steamuser`: Documents,
+  AppData, Saved Games - where games keep saves) is copied into the new prefix; components live in
+  `drive_c/windows`, so the rebuild still drops them.
 
 ## Files
 

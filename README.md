@@ -71,8 +71,8 @@ the prefix. Mixing Proton versions on one prefix breaks it.
 - **Adding components** installs only the new ones.
 - **Removing components or changing Proton** builds a new prefix. winetricks cannot uninstall, and
   switching Proton on an existing prefix breaks it. The old prefix is kept as
-  `~/Games/shared-prefix.backup-<date>`, including any game saves stored inside it. Delete it
-  yourself once you no longer need it.
+  `~/Games/shared-prefix.backup-<date>`. Game saves and settings (the Windows user folder) are copied
+  into the new prefix. Delete the backup yourself once the games work.
 
 ## Uninstall
 

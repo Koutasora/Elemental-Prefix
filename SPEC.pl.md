@@ -77,7 +77,9 @@ Ponowne uruchomienie:
 - **Dodanie składników** – instaluje tylko nowo zaznaczone.
 - **Usunięcie składników albo zmiana Protona** – winetricks nie umie odinstalowywać, a skakanie
   między wersjami Protona psuje prefiksy. Aplikacja buduje prefiks od nowa, a stary najpierw
-  przemianowuje na `shared-prefix.backup-<data>` (zapisy gier trzymane w prefiksie zostają w nim).
+  przemianowuje na `shared-prefix.backup-<data>`. Folder użytkownika Windows (`drive_c/users/steamuser`:
+  Dokumenty, AppData, Saved Games – tam gry trzymają zapisy) jest kopiowany do nowego prefiksu; składniki
+  leżą w `drive_c/windows`, więc przebudowa i tak je usuwa.
 
 ## Pliki
 

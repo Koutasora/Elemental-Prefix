@@ -340,6 +340,19 @@ def backup_prefix():
     return dest
 
 
+USER_DIR = "pfx/drive_c/users/steamuser"  # Documents, AppData, Saved Games - where games keep saves
+
+
+def copy_user_folder(old_prefix):
+    """Copy the Windows user folder into the new prefix. Components live in drive_c/windows,
+    so the rebuild still drops them; the backup keeps everything as it was."""
+    src = os.path.join(old_prefix, USER_DIR)
+    if os.path.isdir(src):
+        # cp -a: the folder holds symlinks that also exist in the new prefix (copytree fails on them)
+        if run_logged(["cp", "-a", "--remove-destination", src + "/.", os.path.join(PREFIX, USER_DIR)]) != 0:
+            raise Error(f"Copying game saves failed. They are still in {old_prefix}. Details: {LOG}")
+
+
 def plan(tool, components, conf):
     """What apply would do: 'create', 'add' or 'rebuild', plus the verbs to install."""
     if not os.path.isdir(os.path.join(PREFIX, "pfx")):
@@ -365,14 +378,20 @@ def apply(tool, components, yes=False):
         raise Error("Removing components or changing Proton rebuilds the prefix "
                     f"(the old one is kept as {os.path.basename(PREFIX)}.backup-<date>). Run again with --yes.")
     log(f"\n##### {datetime.datetime.now():%Y-%m-%d %H:%M:%S} apply {action}: {tool['name']} {' '.join(components)}")
-    total = len(todo) + (1 if action != "add" else 0)
+    total = len(todo) + {"add": 0, "create": 1, "rebuild": 2}[action]
     n = 0
+    old = None
     if action == "rebuild":
-        print("Old prefix kept as " + backup_prefix(), flush=True)
+        old = backup_prefix()
+        print("Old prefix kept as " + old, flush=True)
     if action != "add":
         n += 1
         step(n, total, f"Creating the prefix with {tool['name']}")
         create_prefix(tool)
+    if old:
+        n += 1
+        step(n, total, "Copying game saves and settings from the old prefix")
+        copy_user_folder(old)
     done = [v for v in components if v not in todo]
     save_conf(tool, done)
     label = dict((c[0], c[1]) for c in COMPONENTS)
@@ -580,10 +599,11 @@ def gui_steps():
                 "The prefix will be rebuilt",
                 "Removing components or changing Proton needs a new prefix. All ticked components "
                 "will be installed again, which takes a few minutes.",
-                f"The current prefix is kept as {old}, together with any game saves inside it.")) is None:
+                "Game saves and settings (the Windows user folder) are copied to the new prefix.",
+                f"The current prefix is kept as {old} just in case.")) is None:
             return
     if action != "add" or todo:
-        prog = Progress(len(todo) + (1 if action != "add" else 0))
+        prog = Progress(len(todo) + {"add": 0, "create": 1, "rebuild": 2}[action])
         progress_hook = prog
         try:
             run_apply(tool, components, yes=True)
