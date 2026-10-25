@@ -476,7 +476,7 @@ class Progress:
     def label(self, status):
         # The progress window sizes itself to the first label and ignores --geometry,
         # so every label is a fixed-width block with the same number of lines.
-        body = html(*self.text, "Windows installers may flash on screen - leave them.", status or " ")
+        body = html(*self.text, "Windows installers may flash on screen - don't worry, everything works correctly.", status or " ")
         return f'<table width="600"><tr><td>{body}</td></tr></table>'
 
     def call(self, *args):
