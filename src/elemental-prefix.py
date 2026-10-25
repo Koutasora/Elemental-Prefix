@@ -419,6 +419,9 @@ TITLE = "Elemental Prefix"
 def kdialog(*args):
     """Run kdialog; returns stdout, or None when the user pressed Cancel / closed the window."""
     r = subprocess.run(["kdialog", "--title", TITLE] + list(args), capture_output=True, text=True)
+    log(f"kdialog {list(args)[:4]} -> exit {r.returncode} {r.stderr.strip()[-300:]}")
+    if r.returncode not in (0, 1):
+        raise Error(f"kdialog failed (exit {r.returncode}): {' '.join(args[:2])}. Details: {LOG}")
     return r.stdout.strip() if r.returncode == 0 else None
 
 
@@ -431,7 +434,9 @@ class Progress:
 
     def call(self, *args):
         if self.q and len(self.ref) == 2:
-            subprocess.run([self.q] + self.ref + list(args), capture_output=True)
+            r = subprocess.run([self.q] + self.ref + list(args), capture_output=True, text=True)
+            if r.returncode != 0:
+                log(f"qdbus {args[0]} -> exit {r.returncode} {r.stderr.strip()[-200:]}")
 
     def __call__(self, n, total, text):
         if n is None:
