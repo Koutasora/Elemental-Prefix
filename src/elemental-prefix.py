@@ -30,7 +30,7 @@ LOG = os.path.join(HOME, ".local/share/elemental-prefix/install.log")
 STATE = os.path.join(HOME, ".local/share/elemental-prefix/running")  # pid, start time, current step
 PROGRAM_DIR = os.path.join(HOME, ".local/share/elemental-prefix")
 DESKTOP = os.path.join(HOME, ".local/share/applications/elemental-prefix.desktop")
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 FLATPAK_APP = "com.github.Matoking.protontricks"
 LINE = f"STEAM_COMPAT_DATA_PATH={PREFIX} %command%"
 
