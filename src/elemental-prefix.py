@@ -30,6 +30,7 @@ LOG = os.path.join(HOME, ".local/share/elemental-prefix/install.log")
 STATE = os.path.join(HOME, ".local/share/elemental-prefix/running")  # pid, start time, current step
 PROGRAM_DIR = os.path.join(HOME, ".local/share/elemental-prefix")
 DESKTOP = os.path.join(HOME, ".local/share/applications/elemental-prefix.desktop")
+VERSION = "1.0.0"
 FLATPAK_APP = "com.github.Matoking.protontricks"
 LINE = f"STEAM_COMPAT_DATA_PATH={PREFIX} %command%"
 
@@ -437,7 +438,7 @@ def done_text(tool):
 
 # ---------- dialogs (kdialog) ----------
 
-TITLE = "Elemental Prefix"
+TITLE = f"Elemental Prefix {VERSION}"
 
 # Short list labels: kdialog does not wrap list items, so they stay under ~45 characters.
 GUI_LABELS = {
@@ -655,6 +656,7 @@ def find_tool(protons, name):
 
 def main():
     ap = argparse.ArgumentParser(prog="elemental-prefix.py", description="One shared Proton prefix for non-Steam games.")
+    ap.add_argument("--version", action="version", version=f"Elemental Prefix {VERSION}")
     sub = ap.add_subparsers(dest="cmd")  # no command: dialogs
     sub.add_parser("protons")
     sub.add_parser("components")
