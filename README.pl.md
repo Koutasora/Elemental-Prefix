@@ -109,3 +109,7 @@ python3 $EP uninstall          # z --delete-prefix usuwa też prefiks
 - Jeden wspólny prefiks. Gry wymagające sprzecznych ustawień powinny zostać na własnym prefiksie.
 - Tylko tryb pulpitu. W trybie gry gry działają normalnie; pulpitu potrzebuje tylko sama aplikacja.
 - Opcje uruchamiania ustawia się ręcznie. Aplikacja nie zmienia skrótów Steama.
+
+## Licencja
+
+MIT – zobacz [LICENSE](LICENSE).

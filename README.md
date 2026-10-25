@@ -107,3 +107,7 @@ python3 $EP uninstall          # add --delete-prefix to remove the prefix too
 - One shared prefix. Games that need conflicting settings should keep their own prefix.
 - Desktop Mode only. In Game Mode the games run normally; only the app itself needs the desktop.
 - Launch Options are set by hand. The app does not change Steam shortcuts.
+
+## License
+
+MIT - see [LICENSE](LICENSE).
