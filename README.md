@@ -14,6 +14,17 @@ line in its Launch Options:
 STEAM_COMPAT_DATA_PATH=/home/deck/Games/shared-prefix %command%
 ```
 
+<table>
+  <tr>
+    <td><img src="docs/screenshots/start.png" width="380" alt="Start screen"></td>
+    <td><img src="docs/screenshots/proton.png" width="380" alt="Choosing Proton"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/components.png" width="380" alt="Choosing components"></td>
+    <td><img src="docs/screenshots/done.png" width="380" alt="Launch Options line"></td>
+  </tr>
+</table>
+
 ## Requirements
 
 - Steam Deck in Desktop Mode.

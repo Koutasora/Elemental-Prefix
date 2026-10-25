@@ -14,6 +14,17 @@ dzięki jednej linijce w Opcjach uruchamiania:
 STEAM_COMPAT_DATA_PATH=/home/deck/Games/shared-prefix %command%
 ```
 
+<table>
+  <tr>
+    <td><img src="docs/screenshots/start.png" width="380" alt="Ekran startowy"></td>
+    <td><img src="docs/screenshots/proton.png" width="380" alt="Wybór Protona"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/components.png" width="380" alt="Wybór składników"></td>
+    <td><img src="docs/screenshots/done.png" width="380" alt="Linijka do Opcji uruchamiania"></td>
+  </tr>
+</table>
+
 ## Wymagania
 
 - Steam Deck w trybie pulpitu.

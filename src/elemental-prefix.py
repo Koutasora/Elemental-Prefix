@@ -489,9 +489,10 @@ def kdialog(*args, size=None):
 class Progress:
     def __init__(self, total):
         self.q = shutil.which("qdbus6") or shutil.which("qdbus")
-        self.text = ("Installing", "Preparing...")
+        self.text = ("Installing", "Checking the prefix...")
         out = kdialog("--progressbar", self.label(""), str(max(total, 1))) or ""
         self.ref = out.split()
+        self.call("showCancelButton", "false")  # Cancel would only close the window, not stop winetricks
 
     def label(self, status):
         # The progress window sizes itself to the first label and ignores --geometry,
