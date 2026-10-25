@@ -510,9 +510,11 @@ def gui_steps():
             prog.close()
             progress_hook = None
 
+    changed = action != "add" or bool(todo)
     copied = copy_line()
     kdialog("--msgbox",
-            "The shared prefix is ready.\n\nLaunch Options line"
+            ("The shared prefix is ready." if changed else "Nothing to change - the shared prefix is up to date.")
+            + "\n\nLaunch Options line"
             + (" (already copied to the clipboard)" if copied else "") + ":\n\n"
             + LINE + "\n\n" + done_text(tool))
 
