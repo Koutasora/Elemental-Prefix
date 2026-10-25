@@ -469,9 +469,15 @@ def kdialog(*args, size=None):
 class Progress:
     def __init__(self, total):
         self.q = shutil.which("qdbus6") or shutil.which("qdbus")
-        out = kdialog("--progressbar", html("Installing", "Starting..."), str(max(total, 1)), size="640x260") or ""
+        self.text = ("Installing", "Preparing...")
+        out = kdialog("--progressbar", self.label(""), str(max(total, 1))) or ""
         self.ref = out.split()
-        self.text = ""
+
+    def label(self, status):
+        # The progress window sizes itself to the first label and ignores --geometry,
+        # so every label is a fixed-width block with the same number of lines.
+        body = html(*self.text, "Windows installers may flash on screen - leave them.", status or " ")
+        return f'<table width="600"><tr><td>{body}</td></tr></table>'
 
     def call(self, *args):
         if self.q and len(self.ref) == 2:
@@ -481,10 +487,10 @@ class Progress:
 
     def __call__(self, n, total, text):
         if n is None:
-            self.call("setLabelText", html(*self.text, text))
+            self.call("setLabelText", self.label(text))
         else:
             self.text = (f"Step {n} of {total}", text)
-            self.call("setLabelText", html(*self.text, "Windows installers may flash on screen - leave them."))
+            self.call("setLabelText", self.label(""))
             self.call("Set", "", "value", str(n - 1))
 
     def close(self):
