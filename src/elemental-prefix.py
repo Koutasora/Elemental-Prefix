@@ -9,6 +9,7 @@ Without arguments it shows KDE dialogs (kdialog). The commands do the same from 
   elemental-prefix.py status                       show the prefix and its settings
   elemental-prefix.py apply [--proton NAME] [--components a,b,c] [--yes]
   elemental-prefix.py line                         copy the Launch Options line
+  elemental-prefix.py uninstall [--delete-prefix]  remove the app (the prefix stays by default)
 """
 import argparse
 import datetime
@@ -25,6 +26,8 @@ PREFIX = os.path.join(HOME, "Games/shared-prefix")
 CONF = os.path.join(HOME, ".config/elemental-prefix.conf")
 LOG = os.path.join(HOME, ".local/share/elemental-prefix/install.log")
 STATE = os.path.join(HOME, ".local/share/elemental-prefix/running")  # pid, start time, current step
+PROGRAM_DIR = os.path.join(HOME, ".local/share/elemental-prefix")
+DESKTOP = os.path.join(HOME, ".local/share/applications/elemental-prefix.desktop")
 FLATPAK_APP = "com.github.Matoking.protontricks"
 LINE = f"STEAM_COMPAT_DATA_PATH={PREFIX} %command%"
 
@@ -419,7 +422,8 @@ TITLE = "Elemental Prefix"
 def kdialog(*args):
     """Run kdialog; returns stdout, or None when the user pressed Cancel / closed the window."""
     r = subprocess.run(["kdialog", "--title", TITLE] + list(args), capture_output=True, text=True)
-    log(f"kdialog {list(args)[:4]} -> exit {r.returncode} {r.stderr.strip()[-300:]}")
+    if os.path.isdir(PROGRAM_DIR):  # not after uninstall removed it
+        log(f"kdialog {list(args)[:4]} -> exit {r.returncode} {r.stderr.strip()[-300:]}")
     if r.returncode not in (0, 1):
         raise Error(f"kdialog failed (exit {r.returncode}): {' '.join(args[:2])}. Details: {LOG}")
     return r.stdout.strip() if r.returncode == 0 else None
@@ -519,6 +523,35 @@ def gui_steps():
             + LINE + "\n\n" + done_text(tool))
 
 
+def uninstall(use_gui, delete_prefix=False):
+    """Remove the program, menu entry and settings. The prefix stays unless asked (game saves)."""
+    if running_install():
+        raise Error("An installation is running. Wait until it finishes.")
+    if use_gui:
+        if kdialog("--yesno", "Uninstall Elemental Prefix?") is None:
+            return
+        if os.path.isdir(PREFIX):
+            delete_prefix = kdialog(
+                "--warningyesno",
+                f"Also delete the shared prefix ({PREFIX})?\n\n"
+                "Games that use it will stop working, and game saves kept inside it will be lost.\n"
+                "Choose No to keep it.") is not None
+    if delete_prefix and prefix_in_use():
+        raise Error("A game is using the shared prefix. Close it and try again.")
+    for p in (DESKTOP, CONF):
+        if os.path.exists(p):
+            os.remove(p)
+    shutil.rmtree(PROGRAM_DIR, ignore_errors=True)
+    if delete_prefix:
+        shutil.rmtree(PREFIX, ignore_errors=True)
+    msg = "Elemental Prefix uninstalled." + ("" if delete_prefix or not os.path.isdir(PREFIX)
+                                            else f"\nThe shared prefix stays in {PREFIX}.")
+    if use_gui:
+        kdialog("--msgbox", msg)
+    else:
+        print(msg)
+
+
 # ---------- command line ----------
 
 def find_tool(protons, name):
@@ -539,9 +572,20 @@ def main():
     a.add_argument("--components", help="comma-separated winetricks verbs; default: current or preselected")
     a.add_argument("--yes", action="store_true", help="allow rebuilding the prefix")
     sub.add_parser("line")
+    u = sub.add_parser("uninstall")
+    u.add_argument("--gui", action="store_true", help="ask with dialogs (used by the menu entry)")
+    u.add_argument("--delete-prefix", action="store_true", help="also delete the shared prefix")
     args = ap.parse_args()
     if args.cmd is None:
         return gui()
+    if args.cmd == "uninstall":
+        if args.gui:
+            try:
+                return uninstall(True)
+            except Error as e:
+                kdialog("--error", str(e))
+                return
+        return uninstall(False, args.delete_prefix)
 
     protons = find_protons()
     conf = load_conf()
