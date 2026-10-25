@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Elemental Prefix - one shared Proton prefix for non-Steam games.
 
-Stage 1: command line only. The kdialog front end (stage 2) calls the same functions.
+Without arguments it shows KDE dialogs (kdialog). The commands do the same from a terminal:
 
-  elemental-prefix.py protons                      list installed Proton versions
+  elemental-prefix.py                              dialogs
+  elemental-prefix.py protons                     list installed Proton versions
   elemental-prefix.py components                   list components (* = default)
   elemental-prefix.py status                       show the prefix and its settings
   elemental-prefix.py apply [--proton NAME] [--components a,b,c] [--yes]
@@ -231,13 +232,19 @@ def run_logged(cmd, env=None):
                 break
             except subprocess.TimeoutExpired:
                 print(f"  still working ({elapsed(start)})", flush=True)
+                if progress_hook:
+                    progress_hook(None, None, f"still working ({elapsed(start)})")
     log(f"exit {p.returncode}")
     return p.returncode
 
 
+progress_hook = None  # set by the dialogs: called as (step, total, text); step None = still working
+
+
 def step(n, total, text):
-    # One line per step, read by the progress dialog in stage 2.
     print(f"STEP {n}/{total}: {text}", flush=True)
+    if progress_hook:
+        progress_hook(n, total, text)
     log(f"== {datetime.datetime.now():%Y-%m-%d %H:%M:%S} {text}")
     with open(STATE, "w", encoding="utf-8") as f:
         f.write(f"{os.getpid()}\n{time.time()}\nStep {n}/{total}: {text}\n")
@@ -386,6 +393,125 @@ def copy_line():
     return False
 
 
+def run_apply(tool, components, yes):
+    """apply() with the end-of-install notification and progress file cleanup."""
+    try:
+        apply(tool, components, yes)
+    except Error as e:
+        notify(f"Installation failed: {e}")
+        raise
+    finally:
+        clear_state()
+    notify("Shared prefix ready.")
+
+
+def done_text(tool):
+    default = tool_matches(tool, steam_default_tool() or "")
+    return (f"Games using it need {tool['name']} in Properties > Compatibility"
+            + (" (Steam's default - nothing to set)." if default else "."))
+
+
+# ---------- dialogs (kdialog) ----------
+
+TITLE = "Elemental Prefix"
+
+
+def kdialog(*args):
+    """Run kdialog; returns stdout, or None when the user pressed Cancel / closed the window."""
+    r = subprocess.run(["kdialog", "--title", TITLE] + list(args), capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+class Progress:
+    def __init__(self, total):
+        self.q = shutil.which("qdbus6") or shutil.which("qdbus")
+        out = kdialog("--progressbar", "Starting...", str(max(total, 1))) or ""
+        self.ref = out.split()
+        self.text = ""
+
+    def call(self, *args):
+        if self.q and len(self.ref) == 2:
+            subprocess.run([self.q] + self.ref + list(args), capture_output=True)
+
+    def __call__(self, n, total, text):
+        if n is None:
+            self.call("setLabelText", f"{self.text}\n{text}")
+        else:
+            self.text = f"Step {n} of {total}: {text}"
+            self.call("setLabelText", self.text)
+            self.call("Set", "", "value", str(n - 1))
+
+    def close(self):
+        self.call("close")
+
+
+def gui():
+    if shutil.which("kdialog") is None:
+        raise Error("kdialog not found. Run Elemental Prefix in Desktop Mode.")
+    try:
+        gui_steps()
+    except Error as e:
+        kdialog("--error", str(e))
+
+
+def gui_steps():
+    global progress_hook
+    busy = running_install()
+    if busy:
+        kdialog("--sorry", f"An installation is already running.\n\n{busy[0]} (for {busy[1]})")
+        return
+    check_protontricks()
+
+    protons = find_protons()
+    if not protons:
+        kdialog("--error", "No Proton found. Install one in Steam first (Library > Tools).")
+        return
+    conf = load_conf()
+    cur = current_tool(protons, conf)
+    default = steam_default_tool() or ""
+    items = []
+    for i, t in enumerate(protons):
+        notes = [x for x, ok in (("Steam's default", tool_matches(t, default)),
+                                 ("current prefix", t["key"] == conf.get("proton"))) if ok]
+        items += [str(i), t["name"] + (f"  ({', '.join(notes)})" if notes else ""), "on" if t is cur else "off"]
+    choice = kdialog("--radiolist", "Proton for the shared prefix:", *items)
+    if choice is None:
+        return
+    tool = protons[int(choice)]
+
+    chosen = conf["components"] or [c[0] for c in COMPONENTS if c[2]]
+    items = []
+    for verb, label, _ in COMPONENTS:
+        items += [verb, label, "on" if verb in chosen else "off"]
+    picked = kdialog("--separate-output", "--checklist", "Components to install in the shared prefix:", *items)
+    if picked is None:
+        return
+    components = picked.split()
+
+    action, todo = plan(tool, components, conf)
+    if action == "rebuild":
+        old = f"{os.path.basename(PREFIX)}.backup-<date>"
+        if kdialog("--continue-label", "Rebuild", "--warningcontinuecancel",
+                   "Removing components or changing Proton needs a new prefix.\n\n"
+                   f"The current prefix will be renamed to {old} (game saves inside it stay there) "
+                   "and a new one will be built.") is None:
+            return
+    if action != "add" or todo:
+        prog = Progress(len(todo) + (1 if action != "add" else 0))
+        progress_hook = prog
+        try:
+            run_apply(tool, components, yes=True)
+        finally:
+            prog.close()
+            progress_hook = None
+
+    copied = copy_line()
+    kdialog("--msgbox",
+            "The shared prefix is ready.\n\nLaunch Options line"
+            + (" (already copied to the clipboard)" if copied else "") + ":\n\n"
+            + LINE + "\n\n" + done_text(tool))
+
+
 # ---------- command line ----------
 
 def find_tool(protons, name):
@@ -397,7 +523,7 @@ def find_tool(protons, name):
 
 def main():
     ap = argparse.ArgumentParser(prog="elemental-prefix.py", description="One shared Proton prefix for non-Steam games.")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd")  # no command: dialogs
     sub.add_parser("protons")
     sub.add_parser("components")
     sub.add_parser("status")
@@ -407,6 +533,8 @@ def main():
     a.add_argument("--yes", action="store_true", help="allow rebuilding the prefix")
     sub.add_parser("line")
     args = ap.parse_args()
+    if args.cmd is None:
+        return gui()
 
     protons = find_protons()
     conf = load_conf()
@@ -437,19 +565,11 @@ def main():
                 raise Error("Unknown component: " + ", ".join(bad))
         else:
             components = conf["components"] or [c[0] for c in COMPONENTS if c[2]]
-        try:
-            apply(tool, components, args.yes)
-        except Error as e:
-            notify(f"Installation failed: {e}")
-            raise
-        finally:
-            clear_state()
-        notify("Shared prefix ready.")
+        run_apply(tool, components, args.yes)
         copied = copy_line()
         print("\nDone. Launch Options line" + (" (copied to the clipboard)" if copied else "") + ":")
         print(f"  {LINE}")
-        print(f"Games using it need {tool['name']} in Properties > Compatibility"
-              + (" (Steam's default - nothing to set)." if tool_matches(tool, steam_default_tool() or "") else "."))
+        print(done_text(tool))
     elif args.cmd == "line":
         print(LINE + ("\n(copied to the clipboard)" if copy_line() else ""))
 
