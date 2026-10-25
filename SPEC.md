@@ -31,6 +31,8 @@ STEAM_COMPAT_DATA_PATH=/home/deck/Games/shared-prefix %command%
 
 ## Flow
 
+0. **Start screen** (only when the prefix exists) – shows its Proton and components, with two
+   choices: copy the Launch Options line, or change Proton or components (steps 1–4).
 1. **Proton** – a list of installed Proton versions: Steam's own (`steamapps/common/Proton*`,
    in every Steam library, including the SD card) and custom ones (`compatibilitytools.d`, e.g. GE-Proton).
    Preselected: the Proton of the existing prefix, otherwise Steam's default compatibility tool
@@ -58,11 +60,17 @@ STEAM_COMPAT_DATA_PATH=/home/deck/Games/shared-prefix %command%
 
    All verbs exist in winetricks 20260125 from Protontricks 1.15.0 (checked in stage 0).
 3. **Install** – creates the prefix with the chosen Proton (`proton run wineboot`), then installs
-   the components. A progress dialog shows the current step; the full output goes to
-   `~/.local/share/elemental-prefix/install.log`.
+   the components. A progress dialog shows the current step and, every 30 s, the time spent on it;
+   the full output goes to `~/.local/share/elemental-prefix/install.log`. A notification appears when
+   it ends. The app refuses to start while a game runs on the prefix or another installation runs.
 4. **Done** – shows the Launch Options line (already copied to the clipboard) and a reminder:
    games using the prefix must use the same Proton in Properties → Compatibility (nothing to set
    when it is Steam's default).
+
+Dialogs: fixed sizes (`--geometry`), a bold heading and short text wrapped by hand at about 60
+characters, because kdialog widens the window to the longest line instead of wrapping. List items
+stay under about 45 characters. The progress window ignores `--geometry`, so its text is a
+fixed-width `<table>` block with the same number of lines in every step.
 
 Running the app again:
 
@@ -86,9 +94,10 @@ Running the app again:
    **Passed 2026-10-25** (SteamOS 3.9.5): prefix from Proton 11.0 and GE-Proton11-11 with
    `proton run wineboot -u`, `vcrun2010` from the Flatpak, a non-Steam game (Atelier Yumia) ran on the
    shared prefix with GE-Proton11-11 inside SteamLinuxRuntime_4, clipboard through Klipper.
-1. Script without dialogs: Proton detection, prefix creation, component installation.
-2. Dialogs (`kdialog`): Proton list, checklist, progress, final screen, clipboard.
-3. Installer, menu entry, uninstall, README (EN + PL).
+1. Script without dialogs: Proton detection, prefix creation, component installation. **Done.**
+2. Dialogs (`kdialog`): Proton list, checklist, progress, final screen, clipboard. **Done.**
+3. Installer (`curl … install.sh | bash`), menu entry with an Uninstall action, README (EN + PL),
+   MIT license. **Done.**
 
 ## Not planned
 

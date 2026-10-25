@@ -67,6 +67,9 @@ Aplikacja ma angielski interfejs, więc w okienkach składniki mają angielskie 
 
 ### Późniejsze zmiany
 
+- **Nowe wersje Protona** (np. nowy GE-Proton) pojawiają się na liście same. Prefiks zostaje na swoim
+  Protonie, dopóki nie wybierzesz innego. Nie usuwaj Protona, na którym stoi prefiks – gry z prefiksu
+  przestaną się uruchamiać, dopóki go nie przebudujesz.
 - **Dodanie składników** instaluje tylko nowe.
 - **Usunięcie składników albo zmiana Protona** buduje nowy prefiks. winetricks nie umie
   odinstalowywać, a zmiana Protona na istniejącym prefiksie go psuje. Stary prefiks zostaje jako

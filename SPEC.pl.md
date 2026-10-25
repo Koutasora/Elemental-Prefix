@@ -31,6 +31,8 @@ STEAM_COMPAT_DATA_PATH=/home/deck/Games/shared-prefix %command%
 
 ## Przebieg
 
+0. **Ekran startowy** (tylko gdy prefiks istnieje) – pokazuje jego Protona i składniki i daje dwa
+   wybory: skopiowanie linijki do Opcji uruchamiania albo zmianę Protona lub składników (kroki 1–4).
 1. **Proton** – lista zainstalowanych wersji: Protony Steama (`steamapps/common/Proton*`,
    we wszystkich bibliotekach Steama, także na karcie SD) i własne (`compatibilitytools.d`, np. GE-Proton).
    Domyślnie zaznaczony: Proton istniejącego prefiksu, a bez prefiksu domyślne narzędzie zgodności
@@ -58,11 +60,17 @@ STEAM_COMPAT_DATA_PATH=/home/deck/Games/shared-prefix %command%
 
    Wszystkie polecenia istnieją w winetricks 20260125 z Protontricks 1.15.0 (sprawdzone na etapie 0).
 3. **Instalacja** – tworzy prefiks wybranym Protonem (`proton run wineboot`), potem instaluje
-   składniki. Okno postępu pokazuje bieżący krok; pełny zapis trafia do
-   `~/.local/share/elemental-prefix/install.log`.
+   składniki. Okno postępu pokazuje bieżący krok, a co 30 s czas, który na nim upłynął; pełny zapis
+   trafia do `~/.local/share/elemental-prefix/install.log`. Na koniec pojawia się powiadomienie.
+   Aplikacja nie startuje, gdy na prefiksie działa gra albo trwa inna instalacja.
 4. **Gotowe** – pokazuje linijkę do Opcji uruchamiania (już skopiowaną do schowka) i przypomnienie:
    gry korzystające z prefiksu muszą mieć ten sam Proton w Właściwości → Zgodność (nic do ustawiania,
    gdy to domyślny Proton Steama).
+
+Okienka: stałe rozmiary (`--geometry`), pogrubiony nagłówek i krótki tekst łamany ręcznie po ok. 60
+znakach, bo kdialog zamiast zawijać rozciąga okno do najdłuższej linii. Pozycje list mają do ok. 45
+znaków. Okno postępu ignoruje `--geometry`, więc jego tekst to blok `<table>` o stałej szerokości
+i tej samej liczbie linii w każdym kroku.
 
 Ponowne uruchomienie:
 
@@ -86,9 +94,10 @@ Ponowne uruchomienie:
    **Zaliczony 2026-10-25** (SteamOS 3.9.5): prefiks z Protona 11.0 i GE-Proton11-11 przez
    `proton run wineboot -u`, `vcrun2010` z Flatpaka, gra spoza Steama (Atelier Yumia) działała na wspólnym
    prefiksie z GE-Proton11-11 w SteamLinuxRuntime_4, schowek przez Klippera.
-1. Skrypt bez okienek: wykrywanie Protona, tworzenie prefiksu, instalacja składników.
-2. Okienka (`kdialog`): lista Protonów, lista składników, postęp, ekran końcowy, schowek.
-3. Instalator, pozycja w menu, odinstalowanie, README (EN + PL).
+1. Skrypt bez okienek: wykrywanie Protona, tworzenie prefiksu, instalacja składników. **Gotowe.**
+2. Okienka (`kdialog`): lista Protonów, lista składników, postęp, ekran końcowy, schowek. **Gotowe.**
+3. Instalator (`curl … install.sh | bash`), pozycja w menu z akcją odinstalowania, README (EN + PL),
+   licencja MIT. **Gotowe.**
 
 ## Poza planem
 

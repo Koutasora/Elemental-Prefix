@@ -65,6 +65,9 @@ the prefix. Mixing Proton versions on one prefix breaks it.
 
 ### Changing the prefix later
 
+- **New Proton versions** (e.g. a new GE-Proton) show up in the list on their own. The prefix stays
+  on its Proton until you choose another one. Do not remove the Proton the prefix uses - games on
+  the prefix stop starting until you rebuild it.
 - **Adding components** installs only the new ones.
 - **Removing components or changing Proton** builds a new prefix. winetricks cannot uninstall, and
   switching Proton on an existing prefix breaks it. The old prefix is kept as
