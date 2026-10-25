@@ -18,7 +18,9 @@ import re
 import shutil
 import subprocess
 import sys
+import textwrap
 import time
+from html import escape as _escape
 
 HOME = os.path.expanduser("~")
 STEAM = os.path.join(HOME, ".local/share/Steam")
@@ -418,21 +420,56 @@ def done_text(tool):
 
 TITLE = "Elemental Prefix"
 
+# Short list labels: kdialog does not wrap list items, so they stay under ~45 characters.
+GUI_LABELS = {
+    "vcrun2022": "Visual C++ 2015-2022 (games from 2015)",
+    "vcrun2013": "Visual C++ 2013 (games 2013-2015)",
+    "vcrun2012": "Visual C++ 2012 (games 2012-2014)",
+    "vcrun2010": "Visual C++ 2010 (games 2010-2012)",
+    "vcrun2008": "Visual C++ 2008 (games 2008-2010)",
+    "vcrun2005": "Visual C++ 2005 (games 2005-2008)",
+    "d3dx9": "DirectX 9 (older games)",
+    "xact": "XAudio / XACT (no sound in game)",
+    "d3dcompiler_47": "Shader compiler (DirectX 11 games)",
+    "corefonts": "Windows fonts (missing text)",
+    "dotnet48": ".NET 4.8 (launchers, slow: ~10 min)",
+    "physx": "PhysX (NVIDIA physics)",
+    "quartz": "Video playback (black cutscenes)",
+}
 
-def kdialog(*args):
+
+def escape(s):
+    return _escape(s, quote=False)
+
+
+def html(title, *paras):
+    """Heading plus paragraphs, wrapped by hand: kdialog grows the window to fit long lines."""
+    out = f"<h2>{escape(title)}</h2>"
+    for p in paras:
+        if isinstance(p, tuple):  # ("code", text): one bold line, not wrapped
+            out += f"<p><b>{escape(p[1])}</b></p>"
+        else:
+            out += "<p>" + "<br>".join(escape(x) for x in textwrap.wrap(p, 60)) + "</p>"
+    return out
+
+
+def kdialog(*args, size=None):
     """Run kdialog; returns stdout, or None when the user pressed Cancel / closed the window."""
-    r = subprocess.run(["kdialog", "--title", TITLE] + list(args), capture_output=True, text=True)
+    cmd = ["kdialog", "--title", TITLE] + (["--geometry", size] if size else []) + list(args)
+    r = subprocess.run(cmd, capture_output=True, text=True)
     if os.path.isdir(PROGRAM_DIR):  # not after uninstall removed it
-        log(f"kdialog {list(args)[:4]} -> exit {r.returncode} {r.stderr.strip()[-300:]}")
+        log(f"kdialog {[a[:60] for a in args[:4]]} -> exit {r.returncode} {r.stderr.strip()[-300:]}")
     if r.returncode not in (0, 1):
-        raise Error(f"kdialog failed (exit {r.returncode}): {' '.join(args[:2])}. Details: {LOG}")
-    return r.stdout.strip() if r.returncode == 0 else None
+        raise Error(f"kdialog failed (exit {r.returncode}). Details: {LOG}")
+    # With --geometry kdialog also prints "x: .. y: .. w: .. h: .." - drop it.
+    out = "\n".join(l for l in r.stdout.splitlines() if not l.startswith("x: "))
+    return out.strip() if r.returncode == 0 else None
 
 
 class Progress:
     def __init__(self, total):
         self.q = shutil.which("qdbus6") or shutil.which("qdbus")
-        out = kdialog("--progressbar", "Starting...", str(max(total, 1))) or ""
+        out = kdialog("--progressbar", html("Installing", "Starting..."), str(max(total, 1)), size="640x260") or ""
         self.ref = out.split()
         self.text = ""
 
@@ -444,10 +481,10 @@ class Progress:
 
     def __call__(self, n, total, text):
         if n is None:
-            self.call("setLabelText", f"{self.text}\n{text}")
+            self.call("setLabelText", html(*self.text, text))
         else:
-            self.text = f"Step {n} of {total}: {text}"
-            self.call("setLabelText", self.text)
+            self.text = (f"Step {n} of {total}", text)
+            self.call("setLabelText", html(*self.text, "Windows installers may flash on screen - leave them."))
             self.call("Set", "", "value", str(n - 1))
 
     def close(self):
@@ -460,39 +497,72 @@ def gui():
     try:
         gui_steps()
     except Error as e:
-        kdialog("--error", str(e))
+        kdialog("--error", html("Something went wrong", str(e)))
+
+
+def show_line(title, tool):
+    copied = copy_line()
+    kdialog("--msgbox", html(
+        title,
+        "Paste this line into the game's Launch Options (Steam > game > Properties > General)."
+        + (" It is already in the clipboard:" if copied else ""),
+        ("code", LINE),
+        done_text(tool)))
 
 
 def gui_steps():
     global progress_hook
     busy = running_install()
     if busy:
-        kdialog("--sorry", f"An installation is already running.\n\n{busy[0]} (for {busy[1]})")
+        kdialog("--sorry", html("Installation running", f"{busy[0]} (for {busy[1]}).",
+                                "Wait until it finishes."))
         return
     check_protontricks()
 
     protons = find_protons()
     if not protons:
-        kdialog("--error", "No Proton found. Install one in Steam first (Library > Tools).")
+        kdialog("--error", html("No Proton found", "Install a Proton in Steam first (Library > Tools)."))
         return
     conf = load_conf()
     cur = current_tool(protons, conf)
+
+    if os.path.isdir(os.path.join(PREFIX, "pfx")) and conf.get("proton"):
+        label = dict((c[0], c[1]) for c in COMPONENTS)
+        pick = kdialog("--menu", html(
+            "Shared prefix is ready",
+            f"Proton: {conf.get('proton_name', '-')}",
+            "Components: " + (", ".join(label[v] for v in conf["components"]) or "none"),
+            "What do you want to do?"),
+            "line", "Copy the Launch Options line",
+            "change", "Change Proton or components", size="760x520")
+        if pick is None:
+            return
+        if pick == "line":
+            show_line("Launch Options line", cur)
+            return
+
     default = steam_default_tool() or ""
     items = []
     for i, t in enumerate(protons):
-        notes = [x for x, ok in (("Steam's default", tool_matches(t, default)),
-                                 ("current prefix", t["key"] == conf.get("proton"))) if ok]
+        notes = [x for x, ok in (("Steam default", tool_matches(t, default)),
+                                 ("used now", t["key"] == conf.get("proton"))) if ok]
         items += [str(i), t["name"] + (f"  ({', '.join(notes)})" if notes else ""), "on" if t is cur else "off"]
-    choice = kdialog("--radiolist", "Proton for the shared prefix:", *items)
+    choice = kdialog("--radiolist", html(
+        "Step 1 of 2: Proton",
+        "Games that use the shared prefix must run on the same Proton.",
+        "Steam default needs no extra settings in Steam."), *items, size="760x560")
     if choice is None:
         return
     tool = protons[int(choice)]
 
     chosen = conf["components"] or [c[0] for c in COMPONENTS if c[2]]
     items = []
-    for verb, label, _ in COMPONENTS:
-        items += [verb, label, "on" if verb in chosen else "off"]
-    picked = kdialog("--separate-output", "--checklist", "Components to install in the shared prefix:", *items)
+    for verb, _, _ in COMPONENTS:
+        items += [verb, GUI_LABELS[verb], "on" if verb in chosen else "off"]
+    picked = kdialog("--separate-output", "--checklist", html(
+        "Step 2 of 2: Components",
+        "Libraries that old Windows games often need. Ticked: already installed or recommended.",
+        "Unticking an installed one rebuilds the prefix."), *items, size="760x640")
     if picked is None:
         return
     components = picked.split()
@@ -500,10 +570,11 @@ def gui_steps():
     action, todo = plan(tool, components, conf)
     if action == "rebuild":
         old = f"{os.path.basename(PREFIX)}.backup-<date>"
-        if kdialog("--continue-label", "Rebuild", "--warningcontinuecancel",
-                   "Removing components or changing Proton needs a new prefix.\n\n"
-                   f"The current prefix will be renamed to {old} (game saves inside it stay there) "
-                   "and a new one will be built.") is None:
+        if kdialog("--continue-label", "Rebuild", "--warningcontinuecancel", html(
+                "The prefix will be rebuilt",
+                "Removing components or changing Proton needs a new prefix. All ticked components "
+                "will be installed again, which takes a few minutes.",
+                f"The current prefix is kept as {old}, together with any game saves inside it.")) is None:
             return
     if action != "add" or todo:
         prog = Progress(len(todo) + (1 if action != "add" else 0))
@@ -514,13 +585,7 @@ def gui_steps():
             prog.close()
             progress_hook = None
 
-    changed = action != "add" or bool(todo)
-    copied = copy_line()
-    kdialog("--msgbox",
-            ("The shared prefix is ready." if changed else "Nothing to change - the shared prefix is up to date.")
-            + "\n\nLaunch Options line"
-            + (" (already copied to the clipboard)" if copied else "") + ":\n\n"
-            + LINE + "\n\n" + done_text(tool))
+    show_line("Shared prefix is ready" if action != "add" or todo else "Nothing to change", tool)
 
 
 def uninstall(use_gui, delete_prefix=False):
@@ -528,14 +593,15 @@ def uninstall(use_gui, delete_prefix=False):
     if running_install():
         raise Error("An installation is running. Wait until it finishes.")
     if use_gui:
-        if kdialog("--yesno", "Uninstall Elemental Prefix?") is None:
+        if kdialog("--yesno", html("Uninstall Elemental Prefix?",
+                                   "Removes the app and its menu entry.")) is None:
             return
         if os.path.isdir(PREFIX):
-            delete_prefix = kdialog(
-                "--warningyesno",
-                f"Also delete the shared prefix ({PREFIX})?\n\n"
-                "Games that use it will stop working, and game saves kept inside it will be lost.\n"
-                "Choose No to keep it.") is not None
+            delete_prefix = kdialog("--warningyesno", html(
+                "Also delete the shared prefix?",
+                f"{PREFIX}",
+                "Games that use it will stop working, and game saves kept inside it will be lost. "
+                "Choose No to keep it.")) is not None
     if delete_prefix and prefix_in_use():
         raise Error("A game is using the shared prefix. Close it and try again.")
     for p in (DESKTOP, CONF):
@@ -547,7 +613,7 @@ def uninstall(use_gui, delete_prefix=False):
     msg = "Elemental Prefix uninstalled." + ("" if delete_prefix or not os.path.isdir(PREFIX)
                                             else f"\nThe shared prefix stays in {PREFIX}.")
     if use_gui:
-        kdialog("--msgbox", msg)
+        kdialog("--msgbox", html(*msg.split("\n")))
     else:
         print(msg)
 
@@ -583,7 +649,7 @@ def main():
             try:
                 return uninstall(True)
             except Error as e:
-                kdialog("--error", str(e))
+                kdialog("--error", html("Something went wrong", str(e)))
                 return
         return uninstall(False, args.delete_prefix)
 
