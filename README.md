@@ -21,7 +21,10 @@ STEAM_COMPAT_DATA_PATH=/home/deck/Games/shared-prefix %command%
   </tr>
   <tr>
     <td><img src="docs/screenshots/components.png" width="380" alt="Choosing components"></td>
-    <td><img src="docs/screenshots/done.png" width="380" alt="Launch Options line"></td>
+    <td><img src="docs/screenshots/progress.png" width="380" alt="Installation progress"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="docs/screenshots/done.png" width="380" alt="Launch Options line"></td>
   </tr>
 </table>
 
