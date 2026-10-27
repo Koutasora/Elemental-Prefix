@@ -941,8 +941,6 @@ def check_game(exe):
                 report["missing"].setdefault(name, f"{who}, Proton log")
         if lg["video"]:
             report["needs"].setdefault("quartz", "Proton log")
-        if lg["dotnet"]:
-            report["needs"].setdefault("dotnet48", "Proton log")
     need = set(report["needs"])
     report["prefix"] = "legacy" if need - set(SAFE) else "shared"
     return report
@@ -956,18 +954,21 @@ def log_path(appid):
 LOG_DLL = re.compile(r'err:module:import_dll Library (\S+) \(which is needed by L"([^"]*)"\) not found', re.I)
 LOG_BITS = re.compile(r'err:module:import_dll Loading library (\S+) \(which is needed by L"([^"]*)"\) failed', re.I)
 CLSID_FILTERGRAPH = "e436ebb3-524f-11ce-9f53-00aa00a215a1"  # DirectShow: videos through quartz
+# Errors seen in the logs of games that run fine (stage 8 on the Deck)
+HARMLESS = ("err:openxr:", "err:crypt:check_and_store_certs", "err:mscoree:")
 
 
 def read_proton_log(appid):
     """What the last start's Proton log says: DLLs not found, DLLs of the wrong kind, DirectShow
-    videos, .NET, and the other error lines (counted, not interpreted). None without a log."""
+    videos, and the other error lines (counted, not interpreted). None without a log.
+    .NET is told by the .exe itself: mscoree errors show up in the logs of most games."""
     path = log_path(appid)
     try:
         size, mtime = os.path.getsize(path), os.path.getmtime(path)
         f = open(path, "rb")
     except OSError:
         return None
-    out = {"path": path, "time": mtime, "dlls": [], "bits": [], "video": False, "dotnet": False, "other": {}}
+    out = {"path": path, "time": mtime, "dlls": [], "bits": [], "video": False, "other": {}}
     with f:
         if size > 64 << 20:  # PROTON_LOG without WINEDEBUG=fixme-all writes hundreds of MB; errors at the end matter
             f.seek(size - (64 << 20))
@@ -990,8 +991,7 @@ def read_proton_log(appid):
             if CLSID_FILTERGRAPH in ln.lower():
                 out["video"] = True
                 continue
-            if "err:mscoree" in ln or "Wine Mono" in ln:
-                out["dotnet"] = True
+            if any(x in ln for x in HARMLESS):
                 continue
             # the same error with other numbers counts once
             key = re.sub(r"^[\d.:a-f]*?(?=err:)", "", ln)
@@ -1021,8 +1021,6 @@ def report_lines(r, custom_components):
             found.append("wrong kind (32/64-bit) of " + ", ".join(f"{d} for {w}" for d, w in lg["bits"][:3]))
         if lg["video"]:
             found.append("videos through DirectShow (the legacy prefix plays them)")
-        if lg["dotnet"]:
-            found.append(".NET errors")
         if lg["dlls"]:
             found.append("not found: " + ", ".join(d for d, _ in lg["dlls"][:4]))
         out.append(f"Proton log of the last start ({when}): " + ("; ".join(found) if found else "no missing libraries") + ".")
