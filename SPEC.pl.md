@@ -236,7 +236,7 @@ instalator; użytkownik eksportuje klucz `regedit` na PC. Sprawdzanie proponuje 
    `proton run regedit /S Z:\…` Protonem prefiksu; pozycja Dolphina na `.reg` to osobne service menu
    (`elemental-prefix-reg.desktop`). Klucze, które ma każdy system (Microsoft, sterowniki, Steam,
    silniki), nie są podpowiadane.
-10. README (EN + PL) i zrzuty ekranu.
+10. README (EN + PL) i zrzuty ekranu. **Gotowe 2026-10-27.** Menu mają wysokość dopasowaną do tekstu.
 
 Nic nie budujemy, dopóki etap 4 nie przejdzie.
 

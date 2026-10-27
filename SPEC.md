@@ -236,7 +236,7 @@ game folder.
    `proton run regedit /S Z:\…` with the prefix's Proton; Dolphin's entry on `.reg` is a separate
    service menu (`elemental-prefix-reg.desktop`). Keys every system has (Microsoft, drivers, Steam,
    engines) are not hinted.
-10. README (EN + PL) and screenshots.
+10. README (EN + PL) and screenshots. **Done 2026-10-27.** Menus are sized to their text.
 
 Nothing gets built before stage 4 passes.
 
