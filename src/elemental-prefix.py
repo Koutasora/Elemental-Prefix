@@ -617,7 +617,8 @@ BINK = (".bik", ".bk2", ".smk")
 
 
 def pe_info(path):
-    """Read a PE file's headers: {'bits', 'imports' (lower, no .dll), 'clr' (runtime version), 'xna'}.
+    """Read a PE file's headers: {'bits', 'imports', 'delay' (delay-loaded; lower, no .dll),
+    'clr' (runtime version), 'xna'}.
     Only the headers and import tables are touched (mmap), so large files are fine. None if not PE."""
     try:
         with open(path, "rb") as f:
@@ -657,7 +658,7 @@ def pe_info(path):
             n = name.lower()
             return n[:-4] if n.endswith(".dll") else n
 
-        imports = set()
+        imports, delay = set(), set()
         if ndd > 1 and u32(dd + 8):
             o = off(u32(dd + 8))
             for _ in range(2000):
@@ -672,7 +673,7 @@ def pe_info(path):
                 attrs, name = u32(o), u32(o + 4)
                 if not name:
                     break
-                imports.add(dll(cstr(name if attrs & 1 else name - base)))
+                delay.add(dll(cstr(name if attrs & 1 else name - base)))
                 o += 32
         clr = None
         if ndd > 14 and u32(dd + 14 * 8):
@@ -680,7 +681,7 @@ def pe_info(path):
             clr = "?"
             if mm[m:m + 4] == b"BSJB":
                 clr = mm[m + 16:m + 16 + u32(m + 12)].split(b"\0")[0].decode("ascii", "replace")
-        return {"bits": 64 if machine == 0x8664 else 32, "imports": imports, "clr": clr,
+        return {"bits": 64 if machine == 0x8664 else 32, "imports": imports, "delay": delay, "clr": clr,
                 "xna": bool(clr) and mm.find(b"Microsoft.Xna.Framework") != -1}
     except (struct.error, ValueError, IndexError):
         return None
@@ -695,6 +696,13 @@ def game_root(exe):
     if len(parts) > 3 and parts[-2].lower() == "binaries" and parts[-1].lower() in ("win64", "win32"):
         return os.sep.join(parts[:-3])
     return d
+
+
+def shared_folder(d):
+    """True for a folder that holds many games, not one: a drive, a Steam library, the home folder."""
+    d = os.path.abspath(d)
+    return (os.path.ismount(d) or d == HOME or os.path.dirname(d) in ("/run/media", f"/run/media/{os.path.basename(HOME)}")
+            or os.path.isdir(os.path.join(d, "steamapps")) or os.path.isdir(os.path.join(d, "compatdata")))
 
 
 def game_prefix(exe, root):
@@ -725,11 +733,15 @@ def check_game(exe):
     root = game_root(exe)
     report = {"exe": exe, "root": root, "needs": {}, "missing": {}, "hints": [], "env": "", "notes": []}
     files, pe_files = {}, []
+    alone = shared_folder(root)
+    if alone:
+        root = os.path.dirname(exe)
+        report["notes"].append("The .exe is not in a folder of its own, so only the files next to it were read. "
+                               "Keep each game in its own folder.")
     for dirpath, dirs, names in os.walk(root):
         depth = dirpath[len(root):].count(os.sep)
         redist_dir = any(p.lower() in REDIST_DIRS for p in dirpath[len(root):].split(os.sep))
-        if depth >= 6:
-            dirs[:] = []
+        dirs[:] = [] if alone or depth >= 6 else [x for x in dirs if x.lower() not in ("steamapps", "compatdata")]
         for n in names:
             low = n.lower()
             files.setdefault(low, os.path.join(dirpath, n))
@@ -751,12 +763,13 @@ def check_game(exe):
             break
 
     main = pe_info(exe)
+    exe_dir_n = os.path.normcase(os.path.dirname(exe))
     for path in pe_files:
         info = main if os.path.normcase(path) == os.path.normcase(exe) else pe_info(path)
         if info is None or (info["clr"] and path.lower().endswith(".dll")):
             continue  # not a program, or a .NET library (Unity's Managed folder and the like)
         who = os.path.relpath(path, root)
-        for imp in info["imports"]:
+        for imp in info["imports"] | info["delay"]:
             verb = next((v for rx, v in DLL_VERBS if re.fullmatch(rx, imp)), None)
             if verb == "physx" and imp == "physxloader" and "physxcore" not in shipped:
                 report["needs"].setdefault(verb, who)
@@ -764,7 +777,9 @@ def check_game(exe):
                 continue
             elif verb:
                 report["needs"].setdefault(verb, who)
-            elif info["bits"] in sysdirs and imp not in sysdirs[info["bits"]]:
+            elif (imp in info["imports"] and os.path.normcase(os.path.dirname(path)) == exe_dir_n
+                  and info["bits"] in sysdirs and imp not in sysdirs[info["bits"]]):
+                # only what stops the game from starting: normal imports of the .exe and DLLs next to it
                 report["missing"].setdefault(imp + ".dll", who)
 
     if main and main["clr"]:
