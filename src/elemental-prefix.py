@@ -1285,7 +1285,15 @@ def gui_check(path):
             kdialog("--error", html("No Proton found", "Install a Proton in Steam first (Library > Tools)."))
             return
         if pick == "steam":
-            if subprocess.run(["steamos-add-to-steam", path], capture_output=True).returncode != 0:
+            # No captured output: the steam command can hand its stdout to the running Steam,
+            # and waiting for that pipe to close would hang here.
+            try:
+                rc = subprocess.run(["steamos-add-to-steam", path], stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30).returncode
+            except subprocess.TimeoutExpired:
+                rc = 0  # Steam got the request; the helper just did not exit
+            log(f"steamos-add-to-steam -> exit {rc}")
+            if rc != 0:
                 raise Error("Adding to Steam failed. Add it by hand: Steam > Games > Add a Non-Steam Game.")
             gui_fixed(protons, conf, rec, r["env"], None,
                       "Steam shows the game in its library in a few seconds. Paste the line there.")
