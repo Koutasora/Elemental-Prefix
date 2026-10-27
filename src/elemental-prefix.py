@@ -1296,11 +1296,10 @@ def gui_steps():
     for n in PREFIXES:
         state = "ready" if exists(n) else "not built"
         items += [n, f"{n.capitalize()} - {PREFIXES[n][2]} ({state})"]
-    pick = kdialog("--menu", html(
-        "Choose a prefix",
-        "Shared fits most games. Legacy adds video playback and .NET 4.8 for old games "
-        "(it can break videos in newer ones). Custom has the components you pick."),
-        *items, "reset", "Reset prefix (advanced)", size="760x520")
+    text = ("Shared fits most games. Legacy adds video playback and .NET 4.8 for old games "
+            "(it can break videos in newer ones). Custom has the components you pick.")
+    pick = kdialog("--menu", html("Choose a prefix", text),
+                   *items, "reset", "Reset prefix (advanced)", size=menu_size([text], len(PREFIXES) + 1))
     if pick is None:
         return
     if pick == "reset":
@@ -1331,13 +1330,12 @@ def gui_fixed(protons, conf, name, env="", game=None, *extra):
 
 def gui_custom(protons, conf):
     if exists("custom"):
-        pick = kdialog("--menu", html(
-            "Custom prefix",
-            f"Proton: {conf['custom'].get('proton_name', '-')}",
-            "Components: " + (", ".join(LABEL[v] for v in conf["custom"]["components"]) or "none"),
-            "What do you want to do?"),
-            "line", "Copy the Launch Options line",
-            "change", "Change Proton or components", size="760x520")
+        paras = [f"Proton: {conf['custom'].get('proton_name', '-')}",
+                 "Components: " + (", ".join(LABEL[v] for v in conf["custom"]["components"]) or "none"),
+                 "What do you want to do?"]
+        pick = kdialog("--menu", html("Custom prefix", *paras),
+                       "line", "Copy the Launch Options line",
+                       "change", "Change Proton or components", size=menu_size(paras, 2))
         if pick is None:
             return
         if pick == "line":
@@ -1390,7 +1388,7 @@ def gui_reset(protons, conf):
         name = built[0]
     else:
         name = kdialog("--menu", html("Reset prefix", "Which prefix?"),
-                       *[x for n in built for x in (n, n.capitalize())], size="760x420")
+                       *[x for n in built for x in (n, n.capitalize())], size=menu_size(["Which prefix?"], len(built)))
         if name is None:
             return
     tool = pick_proton(protons, conf, name, f"Reset the {name} prefix",
