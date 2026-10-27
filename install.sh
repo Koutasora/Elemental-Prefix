@@ -25,7 +25,8 @@ chmod +x "$APP"
 # Menu entry and the right-click "Set up with Elemental Prefix" in Dolphin
 python3 "$APP" setup
 
-echo "Elemental Prefix installed."
+VERSION="$(sed -n 's/^VERSION = "\(.*\)"/\1/p' "$APP")"
+echo "Elemental Prefix $VERSION installed."
 echo "Open it from the application menu in Desktop Mode (search: Elemental Prefix)."
 flatpak info com.github.Matoking.protontricks >/dev/null 2>&1 \
     || echo "Protontricks is missing - install it from Discover first."
