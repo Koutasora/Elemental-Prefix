@@ -228,7 +228,10 @@ instalator; użytkownik eksportuje klucz `regedit` na PC. Sprawdzanie proponuje 
    „brakuje linijki” wypadło: aplikacja nie wie, czy gra kiedykolwiek ją miała. `steamos-add-to-steam`
    działa bez przechwytywania wyjścia (polecenie `steam` potrafi trzymać je otwarte) i z limitem 30 s.
    Skróty bez pełnej ścieżki (`flatpak` dla Chiaki, Protontricks) są pomijane przy szukaniu gry.
-8. Odczyt logu Protona.
+8. Odczyt logu Protona. **Gotowe, sprawdzone na Decku 2026-10-27** (działająca gra: bez fałszywych
+   alarmów). .NET rozpoznawany tylko z `.exe`: linie `err:mscoree` są w logach większości gier. Błędy
+   widziane w logach działających gier (openxr, certyfikaty crypt, hid, ntoskrnl, steamclient) nie są
+   pokazywane.
 9. Wskazówki rejestru i import `.reg`.
 10. README (EN + PL) i zrzuty ekranu.
 

@@ -228,7 +228,10 @@ game folder.
    was dropped: the app cannot know a game ever had its line. `steamos-add-to-steam` runs without
    captured output (the `steam` command can keep the pipe open) and a 30 s limit. Shortcuts without a
    full path (`flatpak` for Chiaki, Protontricks) are ignored when looking for a game.
-8. Proton log reading.
+8. Proton log reading. **Done, passed on the Deck 2026-10-27** (a game that runs: no false
+   alarms). .NET is told only from the `.exe`: `err:mscoree` lines appear in most games' logs. Errors
+   seen in logs of games that run fine (openxr, crypt certificates, hid, ntoskrnl, steamclient) are
+   not shown.
 9. Registry hints and `.reg` import.
 10. README (EN + PL) and screenshots.
 
