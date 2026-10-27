@@ -995,7 +995,7 @@ def html(title, *paras):
     out = f"<h2>{escape(title)}</h2>"
     for p in paras:
         if isinstance(p, tuple):  # ("code", text): bold, broken only at spaces (the clipboard has it whole)
-            out += "<p><b>" + "<br>".join(escape(x) for x in textwrap.wrap(p[1], 70, break_long_words=False)) + "</b></p>"
+            out += "<p><b>" + "<br>".join(escape(x) for x in textwrap.wrap(p[1], 70, break_long_words=False, break_on_hyphens=False)) + "</b></p>"
         else:
             out += "<p>" + "<br>".join(escape(x) for x in textwrap.wrap(p, 60)) + "</p>"
     return out
