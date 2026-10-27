@@ -1431,7 +1431,11 @@ def main():
             raise Error("Give the game's .exe: elemental-prefix.py check GAME.exe")
         r = check_game(args.exe)
         print("\n".join(report_lines(r, load_conf()["custom"]["components"])))
-        print("\nLaunch Options line:\n  " + line(r["prefix"], r["env"]))
+        if r["shortcut"]:
+            text, _ = merged_line(r["shortcut"]["opts"], r["prefix"], r["env"])
+            print(f"\nLaunch Options line for {r['shortcut']['name']} (paste over the whole old line):\n  " + text)
+        else:
+            print("\nLaunch Options line:\n  " + line(r["prefix"], r["env"]))
         return
     if args.cmd == "uninstall":
         if args.gui:
@@ -1468,6 +1472,8 @@ def main():
                 print(f"  built with: {c.get('proton_name', '-')}, last run: {proton_version(n) or '-'}")
                 print(f"  components: {' '.join(c['components']) or '-'}")
                 print(f"  {games_text(pdir(n))}")
+                for w in proton_warnings(n):
+                    print(f"  warning: {w}")
         if os.path.isdir(OLD_PREFIX):
             print(f"version 1 prefix: {OLD_PREFIX} ({'moved' if conf.get('migrated') == '1' else 'not moved yet'})")
             old = games_using(OLD_PREFIX)
