@@ -117,6 +117,8 @@ które używają prefiksu.
 - Trzymaj każdą grę we własnym folderze. `.exe` leżący obok innych gier jest sprawdzany sam.
 - Prefiksy uzupełniają brakujące biblioteki. Nie naprawiają zabezpieczeń przed oszustwami,
   zabezpieczeń przed kopiowaniem ani błędów Protona.
+- Elemental Prefix jest przeznaczony do gier, które masz legalnie (GOG, inne sklepy, stare płyty).
+  Zgłoszenia dotyczące pirackich kopii są zamykane.
 
 ## Przejście z wersji 1
 

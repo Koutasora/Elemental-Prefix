@@ -112,6 +112,8 @@ that use the prefix.
   `~/.local/share/Steam/steamapps/compatdata/<number>`; copy them into the prefix by hand.
 - Keep each game in its own folder. An `.exe` lying next to other games is checked alone.
 - The prefixes fix missing libraries. They do not fix anti-cheat, copy protection or Proton bugs.
+- Elemental Prefix is meant for games you own (GOG, other stores, old discs). Reports about
+  pirated copies are closed.
 
 ## Moving from version 1
 
