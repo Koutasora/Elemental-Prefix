@@ -232,7 +232,10 @@ game folder.
    alarms). .NET is told only from the `.exe`: `err:mscoree` lines appear in most games' logs. Errors
    seen in logs of games that run fine (openxr, crypt certificates, hid, ntoskrnl, steamclient) are
    not shown.
-9. Registry hints and `.reg` import.
+9. Registry hints and `.reg` import. **Done, passed on the Deck 2026-10-27.** Import runs
+   `proton run regedit /S Z:\…` with the prefix's Proton; Dolphin's entry on `.reg` is a separate
+   service menu (`elemental-prefix-reg.desktop`). Keys every system has (Microsoft, drivers, Steam,
+   engines) are not hinted.
 10. README (EN + PL) and screenshots.
 
 Nothing gets built before stage 4 passes.

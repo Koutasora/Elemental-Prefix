@@ -232,7 +232,10 @@ instalator; użytkownik eksportuje klucz `regedit` na PC. Sprawdzanie proponuje 
    alarmów). .NET rozpoznawany tylko z `.exe`: linie `err:mscoree` są w logach większości gier. Błędy
    widziane w logach działających gier (openxr, certyfikaty crypt, hid, ntoskrnl, steamclient) nie są
    pokazywane.
-9. Wskazówki rejestru i import `.reg`.
+9. Wskazówki rejestru i import `.reg`. **Gotowe, sprawdzone na Decku 2026-10-27.** Import uruchamia
+   `proton run regedit /S Z:\…` Protonem prefiksu; pozycja Dolphina na `.reg` to osobne service menu
+   (`elemental-prefix-reg.desktop`). Klucze, które ma każdy system (Microsoft, sterowniki, Steam,
+   silniki), nie są podpowiadane.
 10. README (EN + PL) i zrzuty ekranu.
 
 Nic nie budujemy, dopóki etap 4 nie przejdzie.
