@@ -2,29 +2,27 @@
 
 [English](README.md) | **Polski**
 
-Jeden wspólny prefiks Protona z Visual C++, DirectX 9 i innymi popularnymi bibliotekami dla gier
-i programów spoza Steama na **Steam Decku** (SteamOS, tryb pulpitu).
+Wspólne prefiksy Protona z Visual C++, DirectX 9 i innymi popularnymi bibliotekami dla gier
+i programów spoza Steama na **Steam Decku** (SteamOS, tryb pulpitu) oraz sprawdzanie, czego gra
+potrzebuje.
 
-Stare gry i programy z Windowsa dodane do Steama jako gry spoza Steama często się nie uruchamiają,
-bo świeży prefiks Protona nie ma tych bibliotek. Zamiast instalować je przez Protontricks w każdej
-grze osobno, Elemental Prefix raz przygotowuje jeden prefiks. Każda gra spoza Steama korzysta z niego
-dzięki jednej linijce w Opcjach uruchamiania:
+Stare gry z Windowsa dodane do Steama jako gry spoza Steama często się nie uruchamiają, bo świeży
+prefiks Protona nie ma tych bibliotek. Zamiast instalować je przez Protontricks w każdej grze
+osobno, Elemental Prefix raz przygotowuje prefiks. Każda gra spoza Steama korzysta z niego dzięki
+jednej linijce w Opcjach uruchamiania:
 
 ```
-STEAM_COMPAT_DATA_PATH=/home/deck/Games/shared-prefix %command%
+STEAM_COMPAT_DATA_PATH=/home/deck/.local/share/elemental-prefix/shared-prefix PROTON_LOG=1 WINEDEBUG=fixme-all %command%
 ```
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/start.png" width="380" alt="Ekran startowy"></td>
-    <td><img src="docs/screenshots/proton.png" width="380" alt="Wybór Protona"></td>
+    <td><img src="docs/screenshots/menu.png" width="380" alt="Wybór prefiksu"></td>
+    <td><img src="docs/screenshots/check.png" width="380" alt="Check game dependencies"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/components.png" width="380" alt="Wybór składników"></td>
-    <td><img src="docs/screenshots/progress.png" width="380" alt="Postęp instalacji"></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center"><img src="docs/screenshots/done.png" width="380" alt="Linijka do Opcji uruchamiania"></td>
+    <td><img src="docs/screenshots/progress.png" width="380" alt="Budowa prefiksu"></td>
+    <td><img src="docs/screenshots/line.png" width="380" alt="Linijka do Opcji uruchamiania"></td>
   </tr>
 </table>
 
@@ -46,86 +44,118 @@ curl -fsSL https://raw.githubusercontent.com/Koutasora/Elemental-Prefix/main/ins
 
 To samo polecenie uruchomione ponownie aktualizuje aplikację.
 
+## Prefiksy
+
+| Prefiks | Składniki | Dla |
+|---|---|---|
+| **Shared** | Visual C++ 2005–2022, DirectX 9, kompilator shaderów, XAudio / XACT, PhysX, czcionki Windows | większości gier |
+| **Legacy** | Shared + odtwarzanie filmów (`quartz`) + .NET Framework 4.8 | starych gier z czarnymi filmikami, gier .NET |
+| **Custom** | te, które zaznaczysz | gier potrzebujących czegoś innego |
+
+Biblioteki, których gra nie używa, nie przeszkadzają jej, więc jeden stały zestaw wystarcza
+większości gier. Legacy jest osobno, bo jego odtwarzanie filmów może zepsuć filmiki w grach, które
+odtwarzały je dobrze, a .NET 4.8 jest duży i instaluje się około 10 minut. Każdy prefiks powstaje
+przy pierwszym wyborze.
+
 ## Użycie
 
-1. Otwórz **Elemental Prefix** z menu aplikacji.
-2. Wybierz Protona. Domyślny Proton Steama jest już zaznaczony – z nim gry nie wymagają żadnych
-   ustawień w Zgodności.
-3. Zaznacz składniki. Najczęściej potrzebne są już zaznaczone.
-4. Zaczekaj na instalację. Okno pokazuje każdy krok; duże składniki mogą trwać kilka minut.
-5. Linijka do Opcji uruchamiania trafia do schowka. W Steamie otwórz grę:
+1. Otwórz **Elemental Prefix** z menu aplikacji i wybierz prefiks. Za pierwszym razem aplikacja
+   pyta o Protona (domyślny Proton Steama jest zaznaczony) i buduje prefiks; to trwa kilka minut.
+2. Linijka do Opcji uruchamiania trafia do schowka. W Steamie otwórz grę:
    **Właściwości → Ogólne → Opcje uruchamiania** i wklej ją.
+3. W **Właściwości → Zgodność** ustaw tego samego Protona co w pozostałych grach na tym prefiksie
+   (przy domyślnym Protonie Steama nic nie trzeba ustawiać).
 
-Jeśli gra ma w Właściwości → Zgodność ustawiony inny Proton, ustaw ten sam co prefiks. Różne wersje
-Protona na jednym prefiksie go psują.
+### Check game dependencies
 
-### Składniki
+W Dolphinie kliknij prawym przyciskiem `.exe` gry i wybierz **Check game dependencies** (albo
+kliknij prawym Elemental Prefix w menu aplikacji). Sprawdzanie tylko czyta pliki:
 
-| Składnik | polecenie winetricks | Domyślnie zaznaczony |
-|---|---|---|
-| Visual C++ 2015–2022 | `vcrun2022` | tak |
-| Visual C++ 2013 | `vcrun2013` | |
-| Visual C++ 2012 | `vcrun2012` | |
-| Visual C++ 2010 | `vcrun2010` | tak |
-| Visual C++ 2008 | `vcrun2008` | tak |
-| Visual C++ 2005 | `vcrun2005` | |
-| DirectX 9 (d3dx9) | `d3dx9` | tak |
-| Dźwięk XAudio / XACT | `xact` | tak |
-| Kompilator shaderów dla gier DX11 | `d3dcompiler_47` | |
-| Czcionki Windows | `corefonts` | tak |
-| .NET Framework 4.8 (duży, wolny) | `dotnet48` | |
-| PhysX | `physx` | |
-| Filmy w starych grach | `quartz` | |
+- biblioteki, których używają programy gry, i czy gra ma je przy sobie;
+- programy .NET, filmy Bink, stare pliki wideo, instalatory w folderze gry;
+- `dxgi.dll`, `d3d11.dll` i podobne obok `.exe` (ReShade i inne mody): linijka dostaje potrzebne
+  im `WINEDLLOVERRIDES`;
+- log Protona z ostatniego uruchomienia (dzięki `PROTON_LOG=1` w linijce): biblioteki, których nie
+  znaleziono;
+- klucze rejestru, które gra prawdopodobnie czyta, a których brakuje w prefiksie;
+- którego prefiksu gra używa teraz i czy ma innego Protona niż pozostałe gry na nim.
 
-Aplikacja ma angielski interfejs, więc w okienkach składniki mają angielskie nazwy.
+Potem zaleca prefiks i kopiuje linijkę. Jeśli gra ma już Opcje uruchamiania (inne zmienne,
+`~/lsfg`, argumenty gry), linijka jest z nimi składana: wklej ją w miejsce całej starej linijki.
+Grę, której nie ma jeszcze w Steamie, można dodać z tego samego okna.
 
-### Późniejsze zmiany
+### Rejestr
 
-- **Nowe wersje Protona** (np. nowy GE-Proton) pojawiają się na liście same. Prefiks zostaje na swoim
-  Protonie, dopóki nie wybierzesz innego. Nie usuwaj Protona, na którym stoi prefiks – gry z prefiksu
-  przestaną się uruchamiać, dopóki go nie przebudujesz.
-- **Dodanie składników** instaluje tylko nowe.
-- **Usunięcie składników albo zmiana Protona** buduje nowy prefiks. winetricks nie umie
-  odinstalowywać, a zmiana Protona na istniejącym prefiksie go psuje. Stary prefiks zostaje jako
-  `~/Games/shared-prefix.backup-<data>`. Zapisy i ustawienia gier (folder użytkownika Windows) są
-  kopiowane do nowego prefiksu. Kopię usuń sam, gdy gry działają.
+Niektóre stare gry pudełkowe czytają z rejestru ścieżkę instalacji albo klucz CD, a zapisuje je
+tam tylko ich instalator. Wyeksportuj klucz programem `regedit` na PC (**Plik → Eksportuj**),
+skopiuj plik `.reg` na Decka, kliknij go prawym w Dolphinie i wybierz **Import to Elemental Prefix**.
+
+### Zmiana Protona, Reset prefix
+
+- Shared i legacy buduje się raz. Nowszy Proton sam je aktualizuje przy następnym starcie gry,
+  więc wystarczy ustawić nowszego Protona w Zgodności gier.
+- **Reset prefix** (w menu) przebudowuje shared albo legacy, gdy prefiks się zepsuje albo trzeba
+  wrócić do starszego Protona.
+- W custom dodanie składników je instaluje; usunięcie któregoś albo zmiana Protona przebudowuje
+  prefiks.
+
+Przebudowa przenosi stary prefiks do `~/.local/share/elemental-prefix/backups/` i kopiuje do nowego
+zapisy i ustawienia gier (folder użytkownika Windows). Przed startem aplikacja pokazuje listę gier,
+które używają prefiksu.
+
+## Warto wiedzieć
+
+- **Wszystkie gry na jednym prefiksie powinny mieć tego samego Protona.** Każde uruchomienie
+  przestawia prefiks na Protona, który go uruchamia. Sprawdzanie i okno prefiksu ostrzegają, gdy
+  gra ma innego.
+- **Pierwsze uruchomienie w nowym prefiksie może przez kilka minut pokazywać czarny ekran** (gry na
+  Unreal Engine 5 budują shadery). Daj grze czas, zanim ją zamkniesz.
+- **Gry z jednej serii mogą mieć wspólny folder zapisów.** Na jednym prefiksie mogą nadpisywać
+  sobie zapisy; przenieś jedną z nich do custom.
+- **Zapisy z własnego prefiksu Steama gry nie są przenoszone.** Zostają w
+  `~/.local/share/Steam/steamapps/compatdata/<numer>`; skopiuj je do prefiksu ręcznie.
+- Trzymaj każdą grę we własnym folderze. `.exe` leżący obok innych gier jest sprawdzany sam.
+- Prefiksy uzupełniają brakujące biblioteki. Nie naprawiają zabezpieczeń przed oszustwami,
+  zabezpieczeń przed kopiowaniem ani błędów Protona.
+
+## Przejście z wersji 1
+
+Pierwsze uruchomienie wersji 2 proponuje przeniesienie: wspólny prefiks powstaje w nowym miejscu
+z bezpiecznym zestawem, zapisy gier są kopiowane z `~/Games/shared-prefix`, a aplikacja pokazuje
+listę gier, które mają jeszcze starą linijkę. Wklej im nową. Stary folder zostaje jako kopia; usuń
+go, gdy gry działają.
 
 ## Odinstalowanie
 
 Kliknij prawym przyciskiem **Elemental Prefix** w menu aplikacji i wybierz
-**Uninstall Elemental Prefix**. Aplikacja zapyta, czy usunąć też wspólny prefiks; domyślnie zostaje.
+**Uninstall Elemental Prefix**. Aplikacja zapyta, czy usunąć też prefiksy; domyślnie zostają.
 
 ## Pliki
 
 | Co | Gdzie |
 |---|---|
-| Program i log instalacji | `~/.local/share/elemental-prefix/` |
+| Program, log instalacji, prefiksy, kopie | `~/.local/share/elemental-prefix/` |
 | Ustawienia | `~/.config/elemental-prefix.conf` |
 | Pozycja w menu | `~/.local/share/applications/elemental-prefix.desktop` |
-| Wspólny prefiks | `~/Games/shared-prefix` |
+| Pozycje w Dolphinie | `~/.local/share/kio/servicemenus/elemental-prefix*.desktop` |
+| Logi Protona | `~/steam-<numer>.log` |
 
-Aplikacja nigdy nie edytuje plików Steama.
+Aplikacja tylko czyta pliki Steama; nigdy ich nie zmienia.
 
 ## Wiersz poleceń
 
-To samo działa z Konsole:
-
 ```bash
 EP=~/.local/share/elemental-prefix/elemental-prefix.py
-python3 $EP protons            # zainstalowane Protony (* = wybrany)
-python3 $EP components         # składniki (* = wybrane)
-python3 $EP status             # prefiks, Proton, składniki, trwająca instalacja
-python3 $EP apply --proton GE-Proton11-11-x86_64 --components vcrun2022,d3dx9
-python3 $EP apply --yes        # zgoda na przebudowę prefiksu
-python3 $EP line               # skopiuj linijkę do Opcji uruchamiania
-python3 $EP uninstall          # z --delete-prefix usuwa też prefiks
+python3 $EP status                       # prefiksy, ich gry, ostrzeżenia o Protonie
+python3 $EP apply shared                 # zbuduj shared (także legacy, custom)
+python3 $EP apply custom --components vcrun2022,d3dx9 --yes
+python3 $EP reset legacy --proton GE-Proton11-11-x86_64 --yes
+python3 $EP check "/ścieżka/do/Gra.exe"  # czego gra potrzebuje, ze składaną linijką
+python3 $EP import-reg gra.reg --prefix shared
+python3 $EP line shared                  # skopiuj linijkę do Opcji uruchamiania
+python3 $EP protons                      # zainstalowane Protony
+python3 $EP uninstall                    # z --delete-prefixes usuwa też prefiksy
 ```
-
-## Ograniczenia
-
-- Jeden wspólny prefiks. Gry wymagające sprzecznych ustawień powinny zostać na własnym prefiksie.
-- Tylko tryb pulpitu. W trybie gry gry działają normalnie; pulpitu potrzebuje tylko sama aplikacja.
-- Opcje uruchamiania ustawia się ręcznie. Aplikacja nie zmienia skrótów Steama.
 
 ## Licencja
 

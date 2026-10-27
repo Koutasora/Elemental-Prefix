@@ -1427,6 +1427,12 @@ def gui_migrate(protons, conf):
               "No non-Steam game uses the old folder.")
 
 
+def menu_size(paras, n_items):
+    """Window size for a --menu dialog: kdialog gives the list all spare height, so size it to the text."""
+    lines = sum(len(textwrap.wrap(p, 60)) + 1 for p in paras)
+    return f"760x{min(740, max(360, 150 + 21 * lines + 34 * n_items))}"
+
+
 def gui_check(path):
     """Check game dependencies: right-click on an .exe in Dolphin, or the menu entry's action."""
     if shutil.which("kdialog") is None:
@@ -1450,8 +1456,9 @@ def gui_check(path):
             items += [f"reg{i}", f"Import {os.path.basename(reg)[:30]} to a prefix"]
         if r["shortcut"] is None and shutil.which("steamos-add-to-steam"):
             items = ["steam", f"Add to Steam, then the {rec} prefix line"] + items
-        pick = kdialog("--menu", html(f"Check: {os.path.basename(path)}", *report_lines(r, conf["custom"]["components"])),
-                       *items, size="760x640")
+        paras = report_lines(r, conf["custom"]["components"])
+        pick = kdialog("--menu", html(f"Check: {os.path.basename(path)}", *paras),
+                       *items, size=menu_size(paras, len(items) // 2))
         if pick is None:
             return
         busy = running_install()
