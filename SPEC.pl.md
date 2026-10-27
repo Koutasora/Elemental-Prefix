@@ -145,10 +145,11 @@ wskazują starą ścieżkę; użytkownik wkleja każdej nową linijkę.
 ### Linijka w Opcjach uruchamiania
 
 ```
-STEAM_COMPAT_DATA_PATH=/home/deck/.local/share/elemental-prefix/shared-prefix PROTON_LOG=1 %command%
+STEAM_COMPAT_DATA_PATH=/home/deck/.local/share/elemental-prefix/shared-prefix PROTON_LOG=1 WINEDEBUG=fixme-all %command%
 ```
 
-- `PROTON_LOG=1` każe Protonowi zapisywać log, który czyta sprawdzanie.
+- `PROTON_LOG=1` każe Protonowi zapisywać log, który czyta sprawdzanie. Sam zapisuje o wiele za
+  dużo (353 MB w 10 minut gry); z `WINEDEBUG=fixme-all` zostają tylko błędy (831 KB).
 - Inne narzędzia dopisują się do tej samej linijki: zmienne (np. `PROTON_FSR4_UPGRADE=1`), wrappery
   przed `%command%` (np. `~/lsfg` z Decky LSFG-VK), argumenty gry po nim. Zmienna postawiona za
   wrapperem albo za `%command%` nie działa.
@@ -170,7 +171,8 @@ Działa bez Steama: czyta pliki gry.
 2. **Folder gry** – foldery i pliki z bibliotekami do doinstalowania (`_CommonRedist`, `Redist`,
    `DirectX`, `vcredist*.exe`) jako wskazówki; `dxgi.dll`, `d3d11.dll`, `d3d12.dll` obok `.exe`
    (ReShade i podobne mody) → podpowiedź `WINEDLLOVERRIDES="dxgi=n,b"` (albo z pasującym DLL).
-3. **Log Protona** – po nieudanym starcie czyta `steam-<appid>.log` (numer gry z `shortcuts.vdf`) i
+3. **Log Protona** – po nieudanym starcie czyta `~/steam-<id>.log`, gdzie `<id>` to
+   `(appid << 32) | 0x02000000` z `appid` skrótu w `shortcuts.vdf`, i
    szuka linii `Library … not found` i podobnych. Linie, których nie rozpoznaje, pokazuje jako
    fragment, bez zgadywania.
 4. **Rejestr** – ścieżki rejestru zapisane tekstem w `.exe` (`SOFTWARE\…`) i klucze ze spisu w
@@ -215,6 +217,21 @@ instalator; użytkownik eksportuje klucz `regedit` na PC. Sprawdzanie proponuje 
 10. README (EN + PL) i zrzuty ekranu.
 
 Nic nie budujemy, dopóki etap 4 nie przejdzie.
+
+**Wyniki etapu 4 (2026-10-27, zaliczony):**
+
+- Flatpak Protontricks instaluje do prefiksu w `~/.local/share/elemental-prefix` z `--filesystem`
+  na prefiks i folder Protona (vcrun2010 w 16 s).
+- Prefiks zbudowany Protonem 11.0 poza Steamem GE-Proton11-11 zaktualizował przy pierwszym starcie
+  gry (plik `version` `11.0-100` → `GE-Proton11-11`); gra działała.
+- Steam zapisuje zmienione Opcje uruchamiania do `shortcuts.vdf` w kilka sekund, bez restartu.
+- Log: `~/steam-<id>.log`, `<id>` = `(appid << 32) | 0x02000000`. Prefiks testowy z samym
+  vcrun2010 dał `err:module:import_dll Library mfc140u.dll (which is needed by …) not found` –
+  właśnie takie linie czyta sprawdzanie logu.
+- Service menu w `~/.local/share/kio/servicemenus/` (plik wykonywalny) pokazuje się na `.exe`
+  (`application/x-msdownload`) i `.reg` (`text/x-ms-regedit`).
+- „Add to Steam” to `/usr/bin/steamos-add-to-steam [-ui] <ścieżka>` (otwiera
+  `steam://addnonsteamgame/…`); jeszcze nie uruchamiane, próba w etapie 7.
 
 ### Do zbadania kiedyś
 

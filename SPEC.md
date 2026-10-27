@@ -145,10 +145,11 @@ the old path; the user pastes the new line into each.
 ### Launch Options line
 
 ```
-STEAM_COMPAT_DATA_PATH=/home/deck/.local/share/elemental-prefix/shared-prefix PROTON_LOG=1 %command%
+STEAM_COMPAT_DATA_PATH=/home/deck/.local/share/elemental-prefix/shared-prefix PROTON_LOG=1 WINEDEBUG=fixme-all %command%
 ```
 
-- `PROTON_LOG=1` makes Proton write a log the check can read.
+- `PROTON_LOG=1` makes Proton write a log the check can read. On its own it logs far too much
+  (353 MB in 10 minutes of play); with `WINEDEBUG=fixme-all` it keeps errors only (831 KB).
 - Other tools add to the same line: variables (e.g. `PROTON_FSR4_UPGRADE=1`), wrappers before
   `%command%` (e.g. `~/lsfg` from Decky LSFG-VK), game arguments after it. A variable placed after a
   wrapper or after `%command%` does not work.
@@ -170,7 +171,8 @@ Works without Steam: it reads the game files.
 2. **Game folder** – redistributable folders and files (`_CommonRedist`, `Redist`, `DirectX`,
    `vcredist*.exe`) as hints; `dxgi.dll`, `d3d11.dll`, `d3d12.dll` next to the `.exe` (ReShade and
    similar mods) → suggests `WINEDLLOVERRIDES="dxgi=n,b"` (or the matching DLL).
-3. **Proton log** – after a failed start, reads `steam-<appid>.log` (app id from `shortcuts.vdf`) and
+3. **Proton log** – after a failed start, reads `~/steam-<id>.log`, where `<id>` is
+   `(appid << 32) | 0x02000000` with the shortcut's `appid` from `shortcuts.vdf`, and
    looks for `Library … not found` and similar lines. Lines it does not recognise are shown as an
    excerpt, without guessing.
 4. **Registry** – registry paths written as text in the `.exe` (`SOFTWARE\…`) and the keys listed in
@@ -214,6 +216,21 @@ game folder.
 10. README (EN + PL) and screenshots.
 
 Nothing gets built before stage 4 passes.
+
+**Stage 4 results (2026-10-27, passed):**
+
+- The Protontricks Flatpak installs into a prefix under `~/.local/share/elemental-prefix` with
+  `--filesystem` on the prefix and the Proton folder (vcrun2010 in 16 s).
+- A prefix built with Proton 11.0 outside Steam was upgraded by GE-Proton11-11 on the first game
+  start (`version` file `11.0-100` → `GE-Proton11-11`); the game ran.
+- Steam writes a changed Launch Options line to `shortcuts.vdf` within seconds, no restart needed.
+- Log: `~/steam-<id>.log`, `<id>` = `(appid << 32) | 0x02000000`. A test prefix with only
+  vcrun2010 gave `err:module:import_dll Library mfc140u.dll (which is needed by …) not found` –
+  the kind of line the log check reads.
+- A service menu in `~/.local/share/kio/servicemenus/` (file made executable) shows on `.exe`
+  (`application/x-msdownload`) and `.reg` (`text/x-ms-regedit`).
+- "Add to Steam" is `/usr/bin/steamos-add-to-steam [-ui] <path>` (opens
+  `steam://addnonsteamgame/…`); not run yet, tried in stage 7.
 
 ### Ideas to look into later
 
