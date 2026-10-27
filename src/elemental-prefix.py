@@ -955,7 +955,9 @@ LOG_DLL = re.compile(r'err:module:import_dll Library (\S+) \(which is needed by 
 LOG_BITS = re.compile(r'err:module:import_dll Loading library (\S+) \(which is needed by L"([^"]*)"\) failed', re.I)
 CLSID_FILTERGRAPH = "e436ebb3-524f-11ce-9f53-00aa00a215a1"  # DirectShow: videos through quartz
 # Errors seen in the logs of games that run fine (stage 8 on the Deck)
-HARMLESS = ("err:openxr:", "err:crypt:check_and_store_certs", "err:mscoree:")
+HARMLESS = ("err:openxr:", "err:crypt:check_and_store_certs", "err:mscoree:",
+            "err:hid:get_container_id_for_usb_udev_device", "err:ntoskrnl:ZwLoadDriver",
+            "err:steamclient:steamclient_init_registry")
 
 
 def read_proton_log(appid):
