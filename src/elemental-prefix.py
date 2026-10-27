@@ -928,10 +928,76 @@ def check_game(exe):
     if any(n.endswith(OLD_VIDEO) for n in names):
         report["hints"].append("Old video files (.wmv, .mpg, .avi): if videos stay black, use the legacy prefix.")
 
+    report["uses"], report["shortcut"] = game_prefix(exe, root)
+    game = report["shortcut"]
+    report["log"] = read_proton_log(game["appid"]) if game and game["appid"] is not None else None
+    lg = report["log"]
+    if lg:
+        for name, who in lg["dlls"]:
+            verb = next((v for rx, v in DLL_VERBS if re.fullmatch(rx, name[:-4] if name.endswith(".dll") else name)), None)
+            if verb:
+                report["needs"].setdefault(verb, "Proton log")
+            else:
+                report["missing"].setdefault(name, f"{who}, Proton log")
+        if lg["video"]:
+            report["needs"].setdefault("quartz", "Proton log")
+        if lg["dotnet"]:
+            report["needs"].setdefault("dotnet48", "Proton log")
     need = set(report["needs"])
     report["prefix"] = "legacy" if need - set(SAFE) else "shared"
-    report["uses"], report["shortcut"] = game_prefix(exe, root)
     return report
+
+
+def log_path(appid):
+    """Proton's log for a non-Steam game: ~/steam-<64-bit game id>.log (checked in stage 4)."""
+    return os.path.join(HOME, f"steam-{(int(appid) << 32) | 0x02000000}.log")
+
+
+LOG_DLL = re.compile(r'err:module:import_dll Library (\S+) \(which is needed by L"([^"]*)"\) not found', re.I)
+LOG_BITS = re.compile(r'err:module:import_dll Loading library (\S+) \(which is needed by L"([^"]*)"\) failed', re.I)
+CLSID_FILTERGRAPH = "e436ebb3-524f-11ce-9f53-00aa00a215a1"  # DirectShow: videos through quartz
+
+
+def read_proton_log(appid):
+    """What the last start's Proton log says: DLLs not found, DLLs of the wrong kind, DirectShow
+    videos, .NET, and the other error lines (counted, not interpreted). None without a log."""
+    path = log_path(appid)
+    try:
+        size, mtime = os.path.getsize(path), os.path.getmtime(path)
+        f = open(path, "rb")
+    except OSError:
+        return None
+    out = {"path": path, "time": mtime, "dlls": [], "bits": [], "video": False, "dotnet": False, "other": {}}
+    with f:
+        if size > 64 << 20:  # PROTON_LOG without WINEDEBUG=fixme-all writes hundreds of MB; errors at the end matter
+            f.seek(size - (64 << 20))
+        for raw in f:
+            if b"err:" not in raw:
+                continue
+            ln = raw.decode("utf-8", "replace").strip()
+            m = LOG_DLL.search(ln)
+            if m:
+                pair = (m.group(1).lower(), m.group(2).replace("\\\\", "\\").rsplit("\\", 1)[-1])
+                if pair not in out["dlls"]:
+                    out["dlls"].append(pair)
+                continue
+            m = LOG_BITS.search(ln)
+            if m:
+                pair = (m.group(1).lower(), m.group(2).replace("\\\\", "\\").rsplit("\\", 1)[-1])
+                if pair not in out["bits"]:
+                    out["bits"].append(pair)
+                continue
+            if CLSID_FILTERGRAPH in ln.lower():
+                out["video"] = True
+                continue
+            if "err:mscoree" in ln or "Wine Mono" in ln:
+                out["dotnet"] = True
+                continue
+            # the same error with other numbers counts once
+            key = re.sub(r"^[\d.:a-f]*?(?=err:)", "", ln)
+            key = re.sub(r"0x[0-9a-f]+|\b[0-9a-f]{6,}\b|\d+", "#", key)[:160]
+            out["other"][key] = out["other"].get(key, 0) + 1
+    return out
 
 
 def report_lines(r, custom_components):
@@ -947,6 +1013,25 @@ def report_lines(r, custom_components):
         out.append("Not found in the game or the prefix: " + ", ".join(
             f"{d} (used by {w})" for d, w in items[:4]) + (f" and {len(items) - 4} more" if len(items) > 4 else "") + ".")
     out += r["hints"] + r["notes"]
+    lg = r.get("log")
+    if lg:
+        when = datetime.datetime.fromtimestamp(lg["time"]).strftime("%Y-%m-%d %H:%M")
+        found = []
+        if lg["bits"]:
+            found.append("wrong kind (32/64-bit) of " + ", ".join(f"{d} for {w}" for d, w in lg["bits"][:3]))
+        if lg["video"]:
+            found.append("videos through DirectShow (the legacy prefix plays them)")
+        if lg["dotnet"]:
+            found.append(".NET errors")
+        if lg["dlls"]:
+            found.append("not found: " + ", ".join(d for d, _ in lg["dlls"][:4]))
+        out.append(f"Proton log of the last start ({when}): " + ("; ".join(found) if found else "no missing libraries") + ".")
+        other = sorted(lg["other"].items(), key=lambda x: -x[1])[:3]
+        if other:
+            out.append("Other errors in it (not explained): " + " | ".join(
+                f"{k[:90]}{' (x' + str(n) + ')' if n > 1 else ''}" for k, n in other))
+    elif r["shortcut"] and r["uses"] in PREFIXES:
+        out.append("No Proton log yet. If the game does not start, start it once and check again.")
     uses = r["uses"]
     out.append("Uses now: " + (f"the {uses} prefix" if uses in PREFIXES else uses) + ".")
     game = r["shortcut"]
