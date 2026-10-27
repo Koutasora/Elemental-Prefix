@@ -159,6 +159,12 @@ STEAM_COMPAT_DATA_PATH=/home/deck/.local/share/elemental-prefix/shared-prefix PR
   in the user's order. The user pastes it over the whole old line.
 - The check warns when `STEAM_COMPAT_DATA_PATH` stands after a wrapper or `%command%`, when
   `%command%` appears twice, or when the line is missing (probably overwritten by another tool).
+- **Proton per game:** Proton rewrites the prefix to its own version on every start, so all games
+  on one prefix should use the same Proton. The app reads each game's compatibility tool from
+  Steam's `config/config.vdf` (`CompatToolMapping`, key = the shortcut's `appid`; read only) and
+  warns when a game on one of its prefixes uses a different Proton than the prefix (e.g. "Fantasy
+  Life runs on Proton Experimental – set GE-Proton11-11"). Shown next to the game list when a
+  prefix is chosen and in Check game dependencies.
 
 ### Check game dependencies
 
@@ -210,7 +216,7 @@ game folder.
 6. Check game dependencies: imports, .NET, Bink, game folder, prefix recommendation, installing
    missing components into custom.
 7. Launch Options: reading `shortcuts.vdf`, merged line, warnings, game lists in reset and move
-   messages, "Add to Steam".
+   messages, Proton per game warning, "Add to Steam".
 8. Proton log reading.
 9. Registry hints and `.reg` import.
 10. README (EN + PL) and screenshots.

@@ -159,6 +159,12 @@ STEAM_COMPAT_DATA_PATH=/home/deck/.local/share/elemental-prefix/shared-prefix PR
   użytkownika. Użytkownik wkleja ją w miejsce całej starej linijki.
 - Sprawdzanie ostrzega, gdy `STEAM_COMPAT_DATA_PATH` stoi za wrapperem albo `%command%`, gdy
   `%command%` występuje dwa razy albo gdy linijki brakuje (pewnie nadpisało ją inne narzędzie).
+- **Proton w grze:** Proton przy każdym starcie przestawia prefiks na swoją wersję, więc wszystkie
+  gry na jednym prefiksie powinny mieć tego samego Protona. Aplikacja czyta narzędzie zgodności
+  każdej gry z `config/config.vdf` Steama (`CompatToolMapping`, klucz = `appid` skrótu; tylko
+  odczyt) i ostrzega, gdy gra na jednym z jej prefiksów ma innego Protona niż prefiks (np. „Fantasy
+  Life runs on Proton Experimental – set GE-Proton11-11”). Pokazywane obok listy gier przy wyborze
+  prefiksu i w Check game dependencies.
 
 ### Check game dependencies
 
@@ -211,7 +217,7 @@ instalator; użytkownik eksportuje klucz `regedit` na PC. Sprawdzanie proponuje 
 6. Check game dependencies: importy, .NET, Bink, folder gry, wybór prefiksu, doinstalowanie
    brakujących składników do custom.
 7. Opcje uruchamiania: odczyt `shortcuts.vdf`, składana linijka, ostrzeżenia, listy gier w
-   komunikatach resetu i przejścia, „Add to Steam”.
+   komunikatach resetu i przejścia, ostrzeżenie o Protonie w grze, „Add to Steam”.
 8. Odczyt logu Protona.
 9. Wskazówki rejestru i import `.reg`.
 10. README (EN + PL) i zrzuty ekranu.
