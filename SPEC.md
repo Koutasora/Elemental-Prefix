@@ -130,7 +130,8 @@ would break every game on the prefix):
 ### Changing Proton, rebuilds
 
 - Shared and legacy are built once and then left alone. A newer Proton upgrades an existing prefix
-  by itself on the first game start, so choosing a newer Proton only saves the choice.
+  by itself on the first game start, so the app asks for a Proton only when building them; the
+  Proton a game runs on is set in Steam (Properties → Compatibility).
 - **Reset prefix (advanced)** rebuilds shared or legacy only when it is broken or for an older
   Proton. Same backup and save copying as in version 1.
 - Custom keeps the version 1 behaviour: adding components installs them, removing any rebuilds.
@@ -212,9 +213,13 @@ game folder.
    and place for a non-Steam game; how soon Steam writes Launch Options to `shortcuts.vdf`; a Dolphin
    service menu on `.exe` and `.reg`; calling SteamOS's "Add to Steam" from a script.
 5. Three prefixes in the new place, safe set, legacy, custom checklist, Reset prefix, moving from
-   version 1.
+   version 1. **Done, passed on the Deck 2026-10-27.**
 6. Check game dependencies: imports, .NET, Bink, game folder, prefix recommendation, installing
-   missing components into custom.
+   missing components into custom. **Done, passed on the Deck 2026-10-27.** An `.exe` in a folder
+   shared by many games (a drive, a Steam library, the home folder) is checked alone, without
+   subfolders; "not found" lists only normal (not delay-loaded) imports of the `.exe` and the DLLs
+   next to it. Dolphin's entry and the menu entry are written by `elemental-prefix.py setup`,
+   which `install.sh` runs.
 7. Launch Options: reading `shortcuts.vdf`, merged line, warnings, game lists in reset and move
    messages, Proton per game warning, "Add to Steam".
 8. Proton log reading.

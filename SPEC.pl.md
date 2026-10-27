@@ -130,7 +130,8 @@ zepsułoby wszystkie gry na prefiksie):
 ### Zmiana Protona, przebudowa
 
 - Shared i legacy buduje się raz i potem się ich nie dotyka. Nowszy Proton sam aktualizuje
-  istniejący prefiks przy pierwszym starcie gry, więc wybór nowszego Protona tylko zapisuje wybór.
+  istniejący prefiks przy pierwszym starcie gry, więc aplikacja pyta o Protona tylko przy ich
+  budowie; Protona, na którym działa gra, ustawia się w Steamie (Właściwości → Zgodność).
 - **Reset prefix (advanced)** przebudowuje shared albo legacy tylko, gdy się zepsuje, albo dla
   starszego Protona. Ta sama kopia zapasowa i przenoszenie zapisów co w wersji 1.
 - Custom działa jak wersja 1: dodanie składników je instaluje, usunięcie któregokolwiek przebudowuje.
@@ -213,9 +214,12 @@ instalator; użytkownik eksportuje klucz `regedit` na PC. Sprawdzanie proponuje 
    `shortcuts.vdf`; service menu Dolphina na `.exe` i `.reg`; wywołanie „Add to Steam” z SteamOS
    ze skryptu.
 5. Trzy prefiksy w nowym miejscu, bezpieczny zestaw, legacy, lista custom, Reset prefix, przejście
-   z wersji 1.
+   z wersji 1. **Gotowe, sprawdzone na Decku 2026-10-27.**
 6. Check game dependencies: importy, .NET, Bink, folder gry, wybór prefiksu, doinstalowanie
-   brakujących składników do custom.
+   brakujących składników do custom. **Gotowe, sprawdzone na Decku 2026-10-27.** `.exe` w folderze
+   wspólnym dla wielu gier (dysk, biblioteka Steama, katalog domowy) jest sprawdzany sam, bez
+   podfolderów; „not found” pokazuje tylko zwykłe (nie opóźnione) importy `.exe` i DLL obok niego.
+   Pozycję w Dolphinie i w menu zapisuje `elemental-prefix.py setup`, uruchamiane przez `install.sh`.
 7. Opcje uruchamiania: odczyt `shortcuts.vdf`, składana linijka, ostrzeżenia, listy gier w
    komunikatach resetu i przejścia, ostrzeżenie o Protonie w grze, „Add to Steam”.
 8. Odczyt logu Protona.
