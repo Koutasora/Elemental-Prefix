@@ -15,10 +15,13 @@ Without arguments it shows KDE dialogs (kdialog). The commands do the same from 
   elemental-prefix.py reset shared|legacy [--proton NAME] --yes   rebuild a prefix
   elemental-prefix.py migrate [--proton NAME]            move from version 1 (~/Games/shared-prefix)
   elemental-prefix.py line PREFIX                        copy the Launch Options line
+  elemental-prefix.py check GAME.exe [--gui]             check what a game needs
+  elemental-prefix.py setup                              write the menu entries (used by install.sh)
   elemental-prefix.py uninstall [--delete-prefixes]      remove the app (prefixes stay by default)
 """
 import argparse
 import datetime
+import mmap
 import os
 import re
 import shutil
@@ -39,6 +42,7 @@ APP = os.path.join(BASE, "elemental-prefix.py")
 LOG = os.path.join(BASE, "install.log")
 STATE = os.path.join(BASE, "running")  # pid, start time, current step
 DESKTOP = os.path.join(HOME, ".local/share/applications/elemental-prefix.desktop")
+SERVICE_MENU = os.path.join(HOME, ".local/share/kio/servicemenus/elemental-prefix.desktop")
 VERSION = "2.0.0"
 FLATPAK_APP = "com.github.Matoking.protontricks"
 
@@ -79,8 +83,9 @@ def exists(name):
     return os.path.isdir(os.path.join(pdir(name), "pfx"))
 
 
-def line(name):
-    return f"STEAM_COMPAT_DATA_PATH={pdir(name)} PROTON_LOG=1 WINEDEBUG=fixme-all %command%"
+def line(name, env=""):
+    """Launch Options line; env: extra variables from the check (e.g. WINEDLLOVERRIDES)."""
+    return f"STEAM_COMPAT_DATA_PATH={pdir(name)} PROTON_LOG=1 WINEDEBUG=fixme-all {env + ' ' if env else ''}%command%"
 
 
 class Error(Exception):
@@ -233,7 +238,7 @@ def wine_bin(tool_dir, exe):
 
 
 def shortcuts():
-    """Non-Steam games: (name, Launch Options) from every user's shortcuts.vdf. Read only."""
+    """Non-Steam games from every user's shortcuts.vdf: dicts with name, opts, exe, appid. Read only."""
     games = []
     try:
         users = os.listdir(os.path.join(STEAM, "userdata"))
@@ -248,21 +253,23 @@ def shortcuts():
         for s in (find_key(d, "shortcuts") or {}).values():
             if isinstance(s, dict):
                 g = {k.lower(): v for k, v in s.items()}
-                games.append((str(g.get("appname", "?")), str(g.get("launchoptions", ""))))
+                games.append({"name": str(g.get("appname", "?")), "opts": str(g.get("launchoptions", "")),
+                              "exe": str(g.get("exe", "")).strip().strip('"'), "appid": g.get("appid")})
     return games
+
+
+def compat_path(opts):
+    """STEAM_COMPAT_DATA_PATH from a Launch Options line, normalised, or None."""
+    m = re.search(r"STEAM_COMPAT_DATA_PATH=(?:\"([^\"]*)\"|'([^']*)'|(\S+))", opts)
+    if not m:
+        return None
+    return os.path.normpath(os.path.expanduser(next(x for x in m.groups() if x is not None)))
 
 
 def games_using(folder):
     """Names of non-Steam games whose Launch Options point STEAM_COMPAT_DATA_PATH at `folder`."""
     target = os.path.normpath(folder)
-    names = []
-    for name, opts in shortcuts():
-        for m in re.finditer(r"STEAM_COMPAT_DATA_PATH=(?:\"([^\"]*)\"|'([^']*)'|(\S+))", opts):
-            p = os.path.normpath(os.path.expanduser(next(x for x in m.groups() if x is not None)))
-            if p == target:
-                names.append(name)
-                break
-    return names
+    return [g["name"] for g in shortcuts() if compat_path(g["opts"]) == target]
 
 
 def games_text(folder):
@@ -587,6 +594,237 @@ def done_text(name, tool):
             + (" (Steam's default - nothing to set)." if default else "."))
 
 
+# ---------- checking a game ----------
+
+# Imported DLL (lower case, no .dll) -> component. A DLL shipped in the game folder needs nothing.
+DLL_VERBS = [
+    (r"msvc[rp]80|mfc80u?|vcomp", "vcrun2005"),
+    (r"msvc[rp]90|mfc90u?|vcomp90", "vcrun2008"),
+    (r"msvc[rp]100|mfc100u?|vcomp100", "vcrun2010"),
+    (r"msvc[rp]110|mfc110u?|vcomp110|vccorlib110", "vcrun2012"),
+    (r"msvc[rp]120|mfc120u?|vcomp120|vccorlib120", "vcrun2013"),
+    (r"vcruntime140(_1)?|msvcp140(_\w+)?|concrt140|vcomp140|vccorlib140|mfc140u?|vcamp140", "vcrun2022"),
+    (r"d3dx9_\d+", "d3dx9"),
+    (r"d3dcompiler_47", "d3dcompiler_47"),
+    (r"xactengine\d_\d+|x3daudio1_\d+|xaudio2_[0-7]|xapofx1_\d+", "xact"),
+    (r"physxloader|physxcore|physxcooking|nxcooking", "physx"),
+]
+REDIST_DIRS = ("_commonredist", "redist", "redistributables", "directx", "__installer", "support", "dotnetfx")
+REDIST_FILES = r"(vc_?redist|vcredist|dxsetup|dxwebsetup|dotnetfx|ndp\d|oalinst|physx.*setup|unins\d+|unitycrashhandler)"
+MOD_DLLS = ("dxgi", "d3d9", "d3d11", "d3d12", "dinput8", "version", "winmm")  # ReShade, ASI loaders
+OLD_VIDEO = (".wmv", ".mpg", ".mpeg", ".avi", ".asf")
+BINK = (".bik", ".bk2", ".smk")
+
+
+def pe_info(path):
+    """Read a PE file's headers: {'bits', 'imports' (lower, no .dll), 'clr' (runtime version), 'xna'}.
+    Only the headers and import tables are touched (mmap), so large files are fine. None if not PE."""
+    try:
+        with open(path, "rb") as f:
+            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+    except (OSError, ValueError):
+        return None
+    try:
+        u16 = lambda o: struct.unpack_from("<H", mm, o)[0]
+        u32 = lambda o: struct.unpack_from("<I", mm, o)[0]
+        if mm[:2] != b"MZ":
+            return None
+        pe = u32(0x3C)
+        if mm[pe:pe + 4] != b"PE\0\0":
+            return None
+        machine, nsec, optsize = u16(pe + 4), u16(pe + 6), u16(pe + 20)
+        opt = pe + 24
+        pe32 = u16(opt) == 0x10B
+        base = u32(opt + 28) if pe32 else struct.unpack_from("<Q", mm, opt + 24)[0]
+        ndd = u32(opt + (92 if pe32 else 108))
+        dd = opt + (96 if pe32 else 112)
+        sections = []
+        for i in range(nsec):
+            s = opt + optsize + 40 * i
+            sections.append((u32(s + 12), max(u32(s + 8), u32(s + 16)), u32(s + 20)))
+
+        def off(rva):
+            for va, size, raw in sections:
+                if va <= rva < va + size:
+                    return rva - va + raw
+            raise ValueError("rva outside sections")
+
+        def cstr(rva):
+            o = off(rva)
+            return mm[o:mm.find(b"\0", o, o + 260)].decode("ascii", "replace")
+
+        def dll(name):
+            n = name.lower()
+            return n[:-4] if n.endswith(".dll") else n
+
+        imports = set()
+        if ndd > 1 and u32(dd + 8):
+            o = off(u32(dd + 8))
+            for _ in range(2000):
+                name_rva = u32(o + 12)
+                if not name_rva:
+                    break
+                imports.add(dll(cstr(name_rva)))
+                o += 20
+        if ndd > 13 and u32(dd + 13 * 8):
+            o = off(u32(dd + 13 * 8))
+            for _ in range(2000):
+                attrs, name = u32(o), u32(o + 4)
+                if not name:
+                    break
+                imports.add(dll(cstr(name if attrs & 1 else name - base)))
+                o += 32
+        clr = None
+        if ndd > 14 and u32(dd + 14 * 8):
+            m = off(u32(off(u32(dd + 14 * 8)) + 8))
+            clr = "?"
+            if mm[m:m + 4] == b"BSJB":
+                clr = mm[m + 16:m + 16 + u32(m + 12)].split(b"\0")[0].decode("ascii", "replace")
+        return {"bits": 64 if machine == 0x8664 else 32, "imports": imports, "clr": clr,
+                "xna": bool(clr) and mm.find(b"Microsoft.Xna.Framework") != -1}
+    except (struct.error, ValueError, IndexError):
+        return None
+    finally:
+        mm.close()
+
+
+def game_root(exe):
+    """Folder to scan: the .exe's folder, or above an Unreal Engine project (X/Binaries/Win64)."""
+    d = os.path.dirname(os.path.abspath(exe))
+    parts = d.split(os.sep)
+    if len(parts) > 3 and parts[-2].lower() == "binaries" and parts[-1].lower() in ("win64", "win32"):
+        return os.sep.join(parts[:-3])
+    return d
+
+
+def game_prefix(exe, root):
+    """(state, shortcut or None): which prefix the game's Steam shortcut points to."""
+    exe_n = os.path.normcase(os.path.abspath(exe))
+    games = [g for g in shortcuts() if g["exe"].strip('"')]
+    norm = lambda g: os.path.normcase(os.path.abspath(g["exe"].strip('"')))
+    hit = next((g for g in games if norm(g) == exe_n), None)
+    if hit is None:
+        root_n = os.path.normcase(root) + os.sep
+        hit = next((g for g in games if norm(g).startswith(root_n)), None)
+    if hit is None:
+        return "not in Steam", None
+    p = compat_path(hit["opts"])
+    for n in PREFIXES:
+        if p == os.path.normpath(pdir(n)):
+            return n, hit
+    if p:
+        return "other prefix: " + p, hit
+    if hit["appid"] is not None and os.path.isdir(os.path.join(STEAM, "steamapps/compatdata", str(hit["appid"]))):
+        return "its own Steam prefix", hit
+    return "not started yet", hit
+
+
+def check_game(exe):
+    """Look at a game's files and tell which prefix it needs. Read only."""
+    exe = os.path.abspath(exe)
+    root = game_root(exe)
+    report = {"exe": exe, "root": root, "needs": {}, "missing": {}, "hints": [], "env": "", "notes": []}
+    files, pe_files = {}, []
+    for dirpath, dirs, names in os.walk(root):
+        depth = dirpath[len(root):].count(os.sep)
+        redist_dir = any(p.lower() in REDIST_DIRS for p in dirpath[len(root):].split(os.sep))
+        if depth >= 6:
+            dirs[:] = []
+        for n in names:
+            low = n.lower()
+            files.setdefault(low, os.path.join(dirpath, n))
+            if low.endswith((".exe", ".dll")) and not redist_dir and not re.match(REDIST_FILES, low):
+                pe_files.append(os.path.join(dirpath, n))
+        if len(pe_files) > 3000:
+            report["notes"].append("Large folder: only the first 3000 programs and libraries were read.")
+            break
+    shipped = {n[:-4] for n in files if n.endswith(".dll")}
+    sysdirs = {}
+    for n in PREFIXES:
+        if exists(n):
+            win = os.path.join(pdir(n), "pfx/drive_c/windows")
+            for bits, sub in ((64, "system32"), (32, "syswow64")):
+                try:
+                    sysdirs[bits] = {x.lower()[:-4] for x in os.listdir(os.path.join(win, sub)) if x.lower().endswith(".dll")}
+                except OSError:
+                    pass
+            break
+
+    main = pe_info(exe)
+    for path in pe_files:
+        info = main if os.path.normcase(path) == os.path.normcase(exe) else pe_info(path)
+        if info is None or (info["clr"] and path.lower().endswith(".dll")):
+            continue  # not a program, or a .NET library (Unity's Managed folder and the like)
+        who = os.path.relpath(path, root)
+        for imp in info["imports"]:
+            verb = next((v for rx, v in DLL_VERBS if re.fullmatch(rx, imp)), None)
+            if verb == "physx" and imp == "physxloader" and "physxcore" not in shipped:
+                report["needs"].setdefault(verb, who)
+            elif imp in shipped or imp.startswith(("api-ms-", "ext-ms-")) or imp == "mscoree":
+                continue
+            elif verb:
+                report["needs"].setdefault(verb, who)
+            elif info["bits"] in sysdirs and imp not in sysdirs[info["bits"]]:
+                report["missing"].setdefault(imp + ".dll", who)
+
+    if main and main["clr"]:
+        if main["clr"].startswith("v4"):
+            report["needs"]["dotnet48"] = os.path.basename(exe)
+            report["notes"].append(".NET 4 program. Proton's Wine Mono runs many of them; "
+                                   "the legacy prefix has the real .NET 4.8.")
+        else:
+            report["notes"].append(f".NET {main['clr']} program: not in Elemental Prefix. "
+                                   "Proton's Wine Mono may run it.")
+        if main["xna"]:
+            report["notes"].append("Uses XNA (winetricks xna40): not in Elemental Prefix.")
+
+    names = set(files)
+    redist = sorted({os.path.relpath(os.path.dirname(p), root) or "." for n, p in files.items()
+                     if re.match(REDIST_FILES, n) and not n.startswith(("unins", "unitycrash"))})
+    if redist:
+        report["hints"].append("Installers in the game folder (" + ", ".join(redist[:3]) + "): "
+                               "no need to run them, the check reads what the game itself uses.")
+    if "oalinst.exe" in names:
+        report["notes"].append("OpenAL installer found (winetricks openal): not in Elemental Prefix.")
+    exe_dir = os.path.dirname(exe)
+    mods = [m for m in MOD_DLLS if os.path.isfile(os.path.join(exe_dir, m + ".dll"))]
+    if mods:
+        report["env"] = 'WINEDLLOVERRIDES="' + ";".join(f"{m}=n,b" for m in mods) + '"'
+        report["hints"].append(", ".join(m + ".dll" for m in mods) + " next to the game (ReShade or a mod): "
+                               f"the line gets {report['env']} so it loads.")
+    if any(n.endswith(BINK) or n.startswith(("binkw", "bink2w", "smackw")) for n in names):
+        report["hints"].append("Bink or Smacker videos: they ship with the game and need nothing.")
+    if any(n.endswith(OLD_VIDEO) for n in names):
+        report["hints"].append("Old video files (.wmv, .mpg, .avi): if videos stay black, use the legacy prefix.")
+
+    need = set(report["needs"])
+    report["prefix"] = "legacy" if need - set(SAFE) else "shared"
+    report["uses"], report["shortcut"] = game_prefix(exe, root)
+    return report
+
+
+def report_lines(r, custom_components):
+    """Report as short paragraphs (for the dialog and the terminal)."""
+    out = []
+    out.append(f"Recommended: the {r['prefix']} prefix.")
+    if r["needs"]:
+        out.append("Needs: " + ", ".join(LABEL[v] for v in VERBS if v in r["needs"]) + ".")
+    else:
+        out.append("Needs none of the components (the game ships what it uses).")
+    if r["missing"]:
+        items = list(r["missing"].items())
+        out.append("Not found in the game or the prefix: " + ", ".join(
+            f"{d} (used by {w})" for d, w in items[:4]) + (f" and {len(items) - 4} more" if len(items) > 4 else "") + ".")
+    out += r["hints"] + r["notes"]
+    uses = r["uses"]
+    out.append("Uses now: " + (f"the {uses} prefix" if uses in PREFIXES else uses) + ".")
+    if exists("custom"):
+        add = [v for v in VERBS if v in r["needs"] and v not in custom_components]
+        if add:
+            out.append("The custom prefix lacks: " + ", ".join(LABEL[v] for v in add) + ".")
+    return out
+
+
 # ---------- dialogs (kdialog) ----------
 
 TITLE = f"Elemental Prefix {VERSION}"
@@ -689,8 +927,8 @@ def gui():
         kdialog("--error", html("Something went wrong", str(e)))
 
 
-def show_line(title, name, tool, *extra):
-    text = line(name)
+def show_line(title, name, tool, *extra, env=""):
+    text = line(name, env)
     copied = copy_line(text)
     kdialog("--msgbox", html(
         title,
@@ -748,13 +986,13 @@ def gui_steps():
         gui_fixed(protons, conf, pick)
 
 
-def gui_fixed(protons, conf, name):
+def gui_fixed(protons, conf, name, env=""):
     if exists(name):
         tool = current_tool(protons, conf, name)
         action, todo = plan(name, tool, PREFIXES[name][1], conf)
         if todo:  # an earlier install failed on some components
             with_progress(step_count(action, todo, False), run_apply, name, tool, PREFIXES[name][1])
-        show_line(f"{name.capitalize()} prefix", name, tool, games_text(pdir(name)))
+        show_line(f"{name.capitalize()} prefix", name, tool, games_text(pdir(name)), env=env)
         return
     tool = pick_proton(protons, conf, name, f"Proton for the {name} prefix",
                        "Games on this prefix must run on this Proton or a newer one.",
@@ -763,7 +1001,7 @@ def gui_fixed(protons, conf, name):
         return
     components = PREFIXES[name][1]
     with_progress(step_count("create", components, False), run_apply, name, tool, components)
-    show_line(f"{name.capitalize()} prefix is ready", name, tool)
+    show_line(f"{name.capitalize()} prefix is ready", name, tool, env=env)
 
 
 def gui_custom(protons, conf):
@@ -864,6 +1102,98 @@ def gui_migrate(protons, conf):
               "No non-Steam game uses the old folder.")
 
 
+def gui_check(path):
+    """Check game dependencies: right-click on an .exe in Dolphin, or the menu entry's action."""
+    if shutil.which("kdialog") is None:
+        raise Error("kdialog not found. Run Elemental Prefix in Desktop Mode.")
+    try:
+        if not path:
+            path = kdialog("--getopenfilename", HOME, "Windows programs (*.exe *.EXE)")
+            if not path:
+                return
+        if not path.lower().endswith(".exe") or not os.path.isfile(path):
+            kdialog("--sorry", html("Not a game", "Choose the game's .exe file."))
+            return
+        r = check_game(path)
+        conf = load_conf()
+        rec = r["prefix"]
+        items = ["line", (f"Copy the line for the {rec} prefix" if exists(rec)
+                          else f"Build the {rec} prefix (not built yet)")]
+        add = [v for v in VERBS if v in r["needs"] and v not in conf["custom"]["components"]]
+        items += ["custom", "Use the custom prefix" + (f" (adds {len(add)})" if add and exists("custom") else "")]
+        pick = kdialog("--menu", html(f"Check: {os.path.basename(path)}", *report_lines(r, conf["custom"]["components"])),
+                       *items, size="760x640")
+        if pick is None:
+            return
+        busy = running_install()
+        if busy:
+            kdialog("--sorry", html("Installation running", f"{busy[0]} (for {busy[1]}).", "Wait until it finishes."))
+            return
+        check_protontricks()
+        protons = find_protons()
+        if not protons:
+            kdialog("--error", html("No Proton found", "Install a Proton in Steam first (Library > Tools)."))
+            return
+        if pick == "line":
+            gui_fixed(protons, conf, rec, env=r["env"])
+            return
+        if exists("custom"):
+            tool = current_tool(protons, conf, "custom")
+        else:
+            tool = pick_proton(protons, conf, "custom", "Proton for the custom prefix",
+                               "Games that use the custom prefix must run on the same Proton.")
+            if tool is None:
+                return
+        components = sorted(set(conf["custom"]["components"] or [c[0] for c in COMPONENTS if c[2]]) | set(r["needs"]),
+                            key=VERBS.index)
+        action, todo = plan("custom", tool, components, conf)
+        if action != "add" or todo:
+            with_progress(step_count(action, todo, False), run_apply, "custom", tool, components)
+        show_line("Custom prefix is ready", "custom", tool, env=r["env"])
+    except Error as e:
+        kdialog("--error", html("Something went wrong", str(e)))
+
+
+def setup():
+    """Menu entry (with Check and Uninstall actions) and Dolphin's right-click entry on .exe files."""
+    os.makedirs(os.path.dirname(DESKTOP), exist_ok=True)
+    with open(DESKTOP, "w", encoding="utf-8") as f:
+        f.write(f"""[Desktop Entry]
+Type=Application
+Name=Elemental Prefix
+Comment=Shared Proton prefixes for non-Steam games and apps
+Exec=python3 {APP}
+Icon=applications-games
+Categories=Game;Utility;
+Terminal=false
+Actions=check;uninstall;
+
+[Desktop Action check]
+Name=Check game dependencies
+Exec=python3 {APP} check --gui
+
+[Desktop Action uninstall]
+Name=Uninstall Elemental Prefix
+Exec=python3 {APP} uninstall --gui
+""")
+    os.makedirs(os.path.dirname(SERVICE_MENU), exist_ok=True)
+    with open(SERVICE_MENU, "w", encoding="utf-8") as f:
+        f.write(f"""[Desktop Entry]
+Type=Service
+MimeType=application/x-ms-dos-executable;application/x-msdownload;application/vnd.microsoft.portable-executable;application/x-ms-ne-executable;
+Actions=check;
+X-KDE-Priority=TopLevel
+
+[Desktop Action check]
+Name=Check game dependencies
+Icon=applications-games
+Exec=python3 {APP} check --gui %f
+""")
+    os.chmod(SERVICE_MENU, 0o755)  # Plasma 6 ignores service menus that are not executable
+    if shutil.which("kbuildsycoca6"):
+        subprocess.run(["kbuildsycoca6"], capture_output=True)
+
+
 def uninstall(use_gui, delete_prefixes=False):
     """Remove the program, menu entry and settings. The prefixes stay unless asked (game saves)."""
     if running_install():
@@ -881,7 +1211,7 @@ def uninstall(use_gui, delete_prefixes=False):
                 "Choose No to keep them.")) is not None
     if delete_prefixes and any(in_use(p) for p in built):
         raise Error("A game is using a prefix. Close it and try again.")
-    for p in (DESKTOP, CONF, APP, LOG, STATE):
+    for p in (DESKTOP, SERVICE_MENU, CONF, APP, LOG, STATE):
         if os.path.exists(p):
             os.remove(p)
     if delete_prefixes:
@@ -926,12 +1256,27 @@ def main():
     m.add_argument("--proton")
     ln = sub.add_parser("line")
     ln.add_argument("prefix", choices=list(PREFIXES))
+    c = sub.add_parser("check")
+    c.add_argument("exe", nargs="?")
+    c.add_argument("--gui", action="store_true", help="show the result in a dialog (used by the menus)")
+    sub.add_parser("setup")
     u = sub.add_parser("uninstall")
     u.add_argument("--gui", action="store_true", help="ask with dialogs (used by the menu entry)")
     u.add_argument("--delete-prefixes", action="store_true", help="also delete the prefixes and backups")
     args = ap.parse_args()
     if args.cmd is None:
         return gui()
+    if args.cmd == "setup":
+        return setup()
+    if args.cmd == "check":
+        if args.gui:
+            return gui_check(args.exe)
+        if not args.exe:
+            raise Error("Give the game's .exe: elemental-prefix.py check GAME.exe")
+        r = check_game(args.exe)
+        print("\n".join(report_lines(r, load_conf()["custom"]["components"])))
+        print("\nLaunch Options line:\n  " + line(r["prefix"], r["env"]))
+        return
     if args.cmd == "uninstall":
         if args.gui:
             try:
