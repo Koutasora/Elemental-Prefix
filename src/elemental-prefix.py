@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
-"""Elemental Prefix - one shared Proton prefix for non-Steam games.
+"""Elemental Prefix - shared Proton prefixes for non-Steam games.
+
+Three prefixes: shared (a fixed safe set), legacy (safe set + video playback + .NET 4.8)
+and custom (components picked by the user).
 
 Without arguments it shows KDE dialogs (kdialog). The commands do the same from a terminal:
 
-  elemental-prefix.py                              dialogs
-  elemental-prefix.py protons                     list installed Proton versions
-  elemental-prefix.py components                   list components (* = default)
-  elemental-prefix.py status                       show the prefix and its settings
-  elemental-prefix.py apply [--proton NAME] [--components a,b,c] [--yes]
-  elemental-prefix.py line                         copy the Launch Options line
-  elemental-prefix.py uninstall [--delete-prefix]  remove the app (the prefix stays by default)
+  elemental-prefix.py                                    dialogs
+  elemental-prefix.py protons                            list installed Proton versions
+  elemental-prefix.py components                         list components (custom prefix)
+  elemental-prefix.py status                             show the prefixes
+  elemental-prefix.py apply PREFIX [--proton NAME] [--components a,b,c] [--yes]
+                                                         build a prefix or add missing components
+  elemental-prefix.py reset shared|legacy [--proton NAME] --yes   rebuild a prefix
+  elemental-prefix.py migrate [--proton NAME]            move from version 1 (~/Games/shared-prefix)
+  elemental-prefix.py line PREFIX                        copy the Launch Options line
+  elemental-prefix.py uninstall [--delete-prefixes]      remove the app (prefixes stay by default)
 """
 import argparse
 import datetime
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import textwrap
@@ -24,17 +31,18 @@ from html import escape as _escape
 
 HOME = os.path.expanduser("~")
 STEAM = os.path.join(HOME, ".local/share/Steam")
-PREFIX = os.path.join(HOME, "Games/shared-prefix")
+BASE = os.path.join(HOME, ".local/share/elemental-prefix")  # program, log and the prefixes
+BACKUPS = os.path.join(BASE, "backups")
+OLD_PREFIX = os.path.join(HOME, "Games/shared-prefix")  # version 1
 CONF = os.path.join(HOME, ".config/elemental-prefix.conf")
-LOG = os.path.join(HOME, ".local/share/elemental-prefix/install.log")
-STATE = os.path.join(HOME, ".local/share/elemental-prefix/running")  # pid, start time, current step
-PROGRAM_DIR = os.path.join(HOME, ".local/share/elemental-prefix")
+APP = os.path.join(BASE, "elemental-prefix.py")
+LOG = os.path.join(BASE, "install.log")
+STATE = os.path.join(BASE, "running")  # pid, start time, current step
 DESKTOP = os.path.join(HOME, ".local/share/applications/elemental-prefix.desktop")
-VERSION = "1.0.1"
+VERSION = "2.0.0"
 FLATPAK_APP = "com.github.Matoking.protontricks"
-LINE = f"STEAM_COMPAT_DATA_PATH={PREFIX} %command%"
 
-# (winetricks verb, label, preselected) - install order follows this list
+# (winetricks verb, label, preselected for custom) - install order follows this list
 COMPONENTS = [
     ("vcrun2022", "Visual C++ 2015-2022", True),
     ("vcrun2013", "Visual C++ 2013", False),
@@ -51,6 +59,28 @@ COMPONENTS = [
     ("quartz", "Videos in old games", False),
 ]
 VERBS = [c[0] for c in COMPONENTS]
+LABEL = {c[0]: c[1] for c in COMPONENTS}
+SAFE = [v for v in VERBS if v not in ("dotnet48", "quartz")]
+
+# name -> (folder, fixed components or None for custom, short description)
+PREFIXES = {
+    "shared": (os.path.join(BASE, "shared-prefix"), SAFE, "safe set"),
+    "legacy": (os.path.join(BASE, "shared-prefix-legacy"), VERBS, "also videos, .NET 4.8"),
+    "custom": (os.path.join(BASE, "shared-prefix-custom"), None, "your own list"),
+}
+FIXED = ("shared", "legacy")
+
+
+def pdir(name):
+    return PREFIXES[name][0]
+
+
+def exists(name):
+    return os.path.isdir(os.path.join(pdir(name), "pfx"))
+
+
+def line(name):
+    return f"STEAM_COMPAT_DATA_PATH={pdir(name)} PROTON_LOG=1 WINEDEBUG=fixme-all %command%"
 
 
 class Error(Exception):
@@ -91,6 +121,31 @@ def read_vdf(path):
             return parse_vdf(f.read())
     except OSError:
         return {}
+
+
+def parse_binary_vdf(b, i=0):
+    """Binary VDF (shortcuts.vdf): 0 = map, 1 = string, 2 = int32, 8 = end of map."""
+    d = {}
+    while i < len(b):
+        t = b[i]
+        i += 1
+        if t == 8:
+            return d, i
+        e = b.index(0, i)
+        k = b[i:e].decode(errors="replace")
+        i = e + 1
+        if t == 0:
+            d[k], i = parse_binary_vdf(b, i)
+        elif t == 1:
+            e = b.index(0, i)
+            d[k] = b[i:e].decode(errors="replace")
+            i = e + 1
+        elif t == 2:
+            d[k] = struct.unpack("<I", b[i:i + 4])[0]
+            i += 4
+        else:
+            raise ValueError(f"unknown type {t}")
+    return d, i
 
 
 def find_key(d, name):
@@ -177,41 +232,113 @@ def wine_bin(tool_dir, exe):
     raise Error(f"no {exe} in {tool_dir}")
 
 
+def shortcuts():
+    """Non-Steam games: (name, Launch Options) from every user's shortcuts.vdf. Read only."""
+    games = []
+    try:
+        users = os.listdir(os.path.join(STEAM, "userdata"))
+    except OSError:
+        return games
+    for u in users:
+        try:
+            with open(os.path.join(STEAM, "userdata", u, "config/shortcuts.vdf"), "rb") as f:
+                d, _ = parse_binary_vdf(f.read())
+        except (OSError, ValueError, IndexError, struct.error):
+            continue
+        for s in (find_key(d, "shortcuts") or {}).values():
+            if isinstance(s, dict):
+                g = {k.lower(): v for k, v in s.items()}
+                games.append((str(g.get("appname", "?")), str(g.get("launchoptions", ""))))
+    return games
+
+
+def games_using(folder):
+    """Names of non-Steam games whose Launch Options point STEAM_COMPAT_DATA_PATH at `folder`."""
+    target = os.path.normpath(folder)
+    names = []
+    for name, opts in shortcuts():
+        for m in re.finditer(r"STEAM_COMPAT_DATA_PATH=(?:\"([^\"]*)\"|'([^']*)'|(\S+))", opts):
+            p = os.path.normpath(os.path.expanduser(next(x for x in m.groups() if x is not None)))
+            if p == target:
+                names.append(name)
+                break
+    return names
+
+
+def games_text(folder):
+    names = games_using(folder)
+    return "Games using it: " + ", ".join(names) + "." if names else "No non-Steam game uses it yet."
+
+
 # ---------- settings ----------
 
 def load_conf():
-    conf = {}
+    """{'shared': {...}, 'legacy': {...}, 'custom': {...}, 'v1': {...}, 'migrated': '1'}.
+    Prefix keys are written as shared.proton=...; version 1 keys have no prefix."""
+    conf = {n: {} for n in (*PREFIXES, "v1")}
     try:
         with open(CONF, encoding="utf-8") as f:
-            for line in f:
-                k, sep, v = line.strip().partition("=")
-                if sep and not k.startswith("#"):
-                    conf[k.strip()] = v.strip()
+            for raw in f:
+                k, sep, v = raw.strip().partition("=")
+                k, v = k.strip(), v.strip()
+                if not sep or k.startswith("#"):
+                    continue
+                section, dot, key = k.partition(".")
+                if dot and section in PREFIXES:
+                    conf[section][key] = v
+                elif k in ("proton", "proton_name", "proton_dir", "components"):
+                    conf["v1"][k] = v
+                else:
+                    conf[k] = v
     except OSError:
         pass
-    conf["components"] = [c for c in conf.get("components", "").split() if c in VERBS]
+    for n in (*PREFIXES, "v1"):
+        conf[n]["components"] = [c for c in conf[n].get("components", "").split() if c in VERBS]
     return conf
 
 
-def save_conf(tool, components):
+def save_conf(conf):
     os.makedirs(os.path.dirname(CONF), exist_ok=True)
     with open(CONF, "w", encoding="utf-8") as f:
-        f.write(f"proton={tool['key']}\nproton_name={tool['name']}\nproton_dir={tool['dir']}\n")
-        f.write("components=" + " ".join(components) + "\n")
+        for k, v in conf.items():
+            if isinstance(v, str):
+                f.write(f"{k}={v}\n")
+        for n in PREFIXES:
+            for k, v in conf[n].items():
+                f.write(f"{n}.{k}={' '.join(v) if isinstance(v, list) else v}\n")
+        if conf.get("migrated") != "1":
+            for k, v in conf["v1"].items():
+                f.write(f"{k}={' '.join(v) if isinstance(v, list) else v}\n")
 
 
-def current_tool(protons, conf):
-    """Proton of the existing prefix, else Steam's default, else the newest-looking one."""
-    if conf.get("proton"):
-        for t in protons:
-            if t["key"] == conf["proton"]:
-                return t
+def set_prefix_conf(name, tool, components):
+    conf = load_conf()
+    conf[name] = {"proton": tool["key"], "proton_name": tool["name"], "proton_dir": tool["dir"],
+                  "components": [v for v in VERBS if v in components]}
+    save_conf(conf)
+
+
+def current_tool(protons, conf, name):
+    """Proton the prefix was built with, else Steam's default, else the newest-looking one."""
+    key = conf[name].get("proton")
+    for t in protons:
+        if key and t["key"] == key:
+            return t
     default = steam_default_tool()
     if default:
         for t in protons:
             if tool_matches(t, default):
                 return t
     return protons[-1] if protons else None
+
+
+def proton_version(name):
+    """Proton that last ran on the prefix (Proton writes it to the 'version' file)."""
+    try:
+        with open(os.path.join(pdir(name), "version"), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return None
 
 
 # ---------- running things ----------
@@ -290,9 +417,9 @@ def check_protontricks():
                     "then run Elemental Prefix again.")
 
 
-def prefix_in_use():
-    """True when a wineserver is running on the shared prefix (a game is open)."""
-    target = os.path.join(PREFIX, "pfx")
+def in_use(folder):
+    """True when a wineserver is running on the prefix in `folder` (a game is open)."""
+    target = os.path.join(folder, "pfx")
     for pid in os.listdir("/proc"):
         if not pid.isdigit():
             continue
@@ -310,33 +437,34 @@ def prefix_in_use():
     return False
 
 
-def winetricks(tool, args):
-    cmd = ["flatpak", "run", f"--filesystem={PREFIX}", f"--filesystem={tool['dir']}",
-           f"--env=WINEPREFIX={PREFIX}/pfx",
+def winetricks(folder, tool, args):
+    cmd = ["flatpak", "run", f"--filesystem={folder}", f"--filesystem={tool['dir']}",
+           f"--env=WINEPREFIX={folder}/pfx",
            f"--env=WINE={wine_bin(tool['dir'], 'wine')}",
            f"--env=WINESERVER={wine_bin(tool['dir'], 'wineserver')}",
            "--command=winetricks", FLATPAK_APP] + args
     return cmd
 
 
-def installed_verbs(tool):
-    if not os.path.isdir(os.path.join(PREFIX, "pfx")):
+def installed_verbs(name, tool):
+    if not exists(name):
         return []
-    r = subprocess.run(winetricks(tool, ["list-installed"]), capture_output=True, text=True)
+    r = subprocess.run(winetricks(pdir(name), tool, ["list-installed"]), capture_output=True, text=True)
     return [v for v in r.stdout.split() if v in VERBS]
 
 
-def create_prefix(tool):
-    os.makedirs(PREFIX, exist_ok=True)
-    env = dict(os.environ, STEAM_COMPAT_DATA_PATH=PREFIX, STEAM_COMPAT_CLIENT_INSTALL_PATH=STEAM)
+def create_prefix(folder, tool):
+    os.makedirs(folder, exist_ok=True)
+    env = dict(os.environ, STEAM_COMPAT_DATA_PATH=folder, STEAM_COMPAT_CLIENT_INSTALL_PATH=STEAM)
     if run_logged([os.path.join(tool["dir"], "proton"), "run", "wineboot", "-u"], env) != 0 \
-            or not os.path.isdir(os.path.join(PREFIX, "pfx/drive_c")):
+            or not os.path.isdir(os.path.join(folder, "pfx/drive_c")):
         raise Error(f"Creating the prefix failed. Details: {LOG}")
 
 
-def backup_prefix():
-    dest = f"{PREFIX}.backup-{datetime.datetime.now():%Y-%m-%d-%H%M}"
-    os.rename(PREFIX, dest)
+def backup_prefix(name):
+    os.makedirs(BACKUPS, exist_ok=True)
+    dest = os.path.join(BACKUPS, f"{os.path.basename(pdir(name))}-{datetime.datetime.now():%Y-%m-%d-%H%M}")
+    os.rename(pdir(name), dest)
     log(f"old prefix moved to {dest}")
     return dest
 
@@ -344,95 +472,118 @@ def backup_prefix():
 USER_DIR = "pfx/drive_c/users/steamuser"  # Documents, AppData, Saved Games - where games keep saves
 
 
-def copy_user_folder(old_prefix):
+def copy_user_folder(src_prefix, folder):
     """Copy the Windows user folder into the new prefix. Components live in drive_c/windows,
-    so the rebuild still drops them; the backup keeps everything as it was."""
-    src = os.path.join(old_prefix, USER_DIR)
+    so a rebuild still drops them; the backup keeps everything as it was."""
+    src = os.path.join(src_prefix, USER_DIR)
     if os.path.isdir(src):
         # cp -a: the folder holds symlinks that also exist in the new prefix (copytree fails on them)
-        if run_logged(["cp", "-a", "--remove-destination", src + "/.", os.path.join(PREFIX, USER_DIR)]) != 0:
-            raise Error(f"Copying game saves failed. They are still in {old_prefix}. Details: {LOG}")
+        if run_logged(["cp", "-a", "--remove-destination", src + "/.", os.path.join(folder, USER_DIR)]) != 0:
+            raise Error(f"Copying game saves failed. They are still in {src_prefix}. Details: {LOG}")
 
 
-def plan(tool, components, conf):
-    """What apply would do: 'create', 'add' or 'rebuild', plus the verbs to install."""
-    if not os.path.isdir(os.path.join(PREFIX, "pfx")):
+def plan(name, tool, components, conf, reset=False):
+    """What apply would do: 'create', 'add' or 'rebuild', plus the verbs to install.
+    Shared and legacy are only rebuilt on reset: a newer Proton upgrades them by itself."""
+    if not exists(name):
         return "create", components
-    if conf.get("proton") and conf["proton"] != tool["key"]:
+    if reset:
         return "rebuild", components
-    have = installed_verbs(tool)
-    if any(v in have and v not in components for v in VERBS):
+    if name == "custom" and conf["custom"].get("proton") and conf["custom"]["proton"] != tool["key"]:
+        return "rebuild", components
+    have = installed_verbs(name, tool)
+    if name == "custom" and any(v in have and v not in components for v in VERBS):
         return "rebuild", components
     return "add", [v for v in components if v not in have]
 
 
-def apply(tool, components, yes=False):
+def step_count(action, todo, copying):
+    return len(todo) + (0 if action == "add" else 1) + (1 if action == "rebuild" or copying else 0)
+
+
+def apply(name, tool, components, yes=False, reset=False, copy_from=None):
+    """Build, extend or rebuild a prefix. copy_from: copy game saves from this prefix after creating."""
     if running_install():
         raise Error("Another installation is running. See: elemental-prefix.py status")
     check_protontricks()
-    if prefix_in_use():
-        raise Error("A game is using the shared prefix. Close it and try again.")
+    if in_use(pdir(name)) or (copy_from and in_use(copy_from)):
+        raise Error("A game is using the prefix. Close it and try again.")
     conf = load_conf()
     components = [v for v in VERBS if v in components]
-    action, todo = plan(tool, components, conf)
+    action, todo = plan(name, tool, components, conf, reset)
     if action == "rebuild" and not yes:
-        raise Error("Removing components or changing Proton rebuilds the prefix "
-                    f"(the old one is kept as {os.path.basename(PREFIX)}.backup-<date>). Run again with --yes.")
-    log(f"\n##### {datetime.datetime.now():%Y-%m-%d %H:%M:%S} apply {action}: {tool['name']} {' '.join(components)}")
-    total = len(todo) + {"add": 0, "create": 1, "rebuild": 2}[action]
+        raise Error("This rebuilds the prefix (the old one is moved to "
+                    f"{BACKUPS}). Run again with --yes.")
+    log(f"\n##### {datetime.datetime.now():%Y-%m-%d %H:%M:%S} {name} {action}: {tool['name']} {' '.join(components)}")
+    total = step_count(action, todo, copy_from)
     n = 0
-    old = None
     if action == "rebuild":
-        old = backup_prefix()
-        print("Old prefix kept as " + old, flush=True)
+        copy_from = backup_prefix(name)
+        print("Old prefix kept as " + copy_from, flush=True)
     if action != "add":
         n += 1
-        step(n, total, f"Creating the prefix with {tool['name']}")
-        create_prefix(tool)
-    if old:
+        step(n, total, f"Creating the {name} prefix with {tool['name']}")
+        create_prefix(pdir(name), tool)
+    if copy_from:
         n += 1
-        step(n, total, "Copying game saves and settings from the old prefix")
-        copy_user_folder(old)
+        step(n, total, "Copying game saves and settings")
+        copy_user_folder(copy_from, pdir(name))
     done = [v for v in components if v not in todo]
-    save_conf(tool, done)
-    label = dict((c[0], c[1]) for c in COMPONENTS)
+    set_prefix_conf(name, tool, done)
     failed = []
     for v in todo:
         n += 1
-        step(n, total, f"Installing {label[v]}")
-        if run_logged(winetricks(tool, ["-q", v])) == 0:
+        step(n, total, f"Installing {LABEL[v]}")
+        if run_logged(winetricks(pdir(name), tool, ["-q", v])) == 0:
             done.append(v)
         else:
             failed.append(v)
-        save_conf(tool, [x for x in VERBS if x in done])
+        set_prefix_conf(name, tool, done)
     if failed:
-        raise Error("Not installed: " + ", ".join(label[v] for v in failed) + f". Details: {LOG}")
+        raise Error("Not installed: " + ", ".join(LABEL[v] for v in failed) + f". Details: {LOG}")
     return action
 
 
-def copy_line():
+def needs_migration(conf):
+    return os.path.isdir(os.path.join(OLD_PREFIX, "pfx")) and not exists("shared") and conf.get("migrated") != "1"
+
+
+def migrate(tool):
+    """Version 1 -> 2: build shared in the new place with the old prefix's saves. The old one stays."""
+    if exists("shared"):
+        raise Error(f"The shared prefix already exists: {pdir('shared')}")
+    if not os.path.isdir(os.path.join(OLD_PREFIX, "pfx")):
+        raise Error(f"No version 1 prefix in {OLD_PREFIX}")
+    run_apply("shared", tool, SAFE, copy_from=OLD_PREFIX)
+    conf = load_conf()
+    conf["migrated"] = "1"
+    save_conf(conf)
+
+
+def copy_line(text):
     for q in ("qdbus6", "qdbus"):
         if shutil.which(q) and subprocess.run(
-                [q, "org.kde.klipper", "/klipper", "setClipboardContents", LINE], capture_output=True).returncode == 0:
+                [q, "org.kde.klipper", "/klipper", "setClipboardContents", text], capture_output=True).returncode == 0:
             return True
     return False
 
 
-def run_apply(tool, components, yes):
+def run_apply(name, tool, components, yes=False, reset=False, copy_from=None):
     """apply() with the end-of-install notification and progress file cleanup."""
     try:
-        apply(tool, components, yes)
+        apply(name, tool, components, yes, reset, copy_from)
     except Error as e:
         notify(f"Installation failed: {e}")
         raise
     finally:
         clear_state()
-    notify("Shared prefix ready.")
+    notify(f"The {name} prefix is ready.")
 
 
-def done_text(tool):
+def done_text(name, tool):
     default = tool_matches(tool, steam_default_tool() or "")
-    return (f"Games using it need {tool['name']} in Properties > Compatibility"
+    which = tool["name"] if name == "custom" else f"{tool['name']} or newer"
+    return (f"Games using it need {which} in Properties > Compatibility"
             + (" (Steam's default - nothing to set)." if default else "."))
 
 
@@ -477,7 +628,7 @@ def kdialog(*args, size=None):
     """Run kdialog; returns stdout, or None when the user pressed Cancel / closed the window."""
     cmd = ["kdialog", "--title", TITLE] + (["--geometry", size] if size else []) + list(args)
     r = subprocess.run(cmd, capture_output=True, text=True)
-    if os.path.isdir(PROGRAM_DIR):  # not after uninstall removed it
+    if os.path.isdir(BASE):  # not after uninstall removed it
         log(f"kdialog {[a[:60] for a in args[:4]]} -> exit {r.returncode} {r.stderr.strip()[-300:]}")
     if r.returncode not in (0, 1):
         raise Error(f"kdialog failed (exit {r.returncode}). Details: {LOG}")
@@ -518,6 +669,17 @@ class Progress:
         self.call("close")
 
 
+def with_progress(total, fn, *args, **kw):
+    global progress_hook
+    prog = Progress(total)
+    progress_hook = prog
+    try:
+        fn(*args, **kw)
+    finally:
+        prog.close()
+        progress_hook = None
+
+
 def gui():
     if shutil.which("kdialog") is None:
         raise Error("kdialog not found. Run Elemental Prefix in Desktop Mode.")
@@ -527,62 +689,105 @@ def gui():
         kdialog("--error", html("Something went wrong", str(e)))
 
 
-def show_line(title, tool):
-    copied = copy_line()
+def show_line(title, name, tool, *extra):
+    text = line(name)
+    copied = copy_line(text)
     kdialog("--msgbox", html(
         title,
         "Paste this line into the game's Launch Options (Steam > game > Properties > General)."
         + (" It is already in the clipboard:" if copied else ""),
-        ("code", LINE),
-        done_text(tool)))
+        ("code", text),
+        done_text(name, tool), *extra), size="760x420")
+
+
+def pick_proton(protons, conf, name, title, *paras):
+    default = steam_default_tool() or ""
+    cur = current_tool(protons, conf, name)
+    items = []
+    for i, t in enumerate(protons):
+        notes = [x for x, ok in (("Steam default", tool_matches(t, default)),
+                                 ("used now", exists(name) and t["key"] == conf[name].get("proton"))) if ok]
+        items += [str(i), t["name"] + (f"  ({', '.join(notes)})" if notes else ""), "on" if t is cur else "off"]
+    choice = kdialog("--radiolist", html(title, *paras), *items, size="760x560")
+    return None if choice is None else protons[int(choice)]
 
 
 def gui_steps():
-    global progress_hook
     busy = running_install()
     if busy:
         kdialog("--sorry", html("Installation running", f"{busy[0]} (for {busy[1]}).",
                                 "Wait until it finishes."))
         return
     check_protontricks()
-
     protons = find_protons()
     if not protons:
         kdialog("--error", html("No Proton found", "Install a Proton in Steam first (Library > Tools)."))
         return
     conf = load_conf()
-    cur = current_tool(protons, conf)
 
-    if os.path.isdir(os.path.join(PREFIX, "pfx")) and conf.get("proton"):
-        label = dict((c[0], c[1]) for c in COMPONENTS)
+    if needs_migration(conf):
+        gui_migrate(protons, conf)
+        return
+
+    items = []
+    for n in PREFIXES:
+        state = "ready" if exists(n) else "not built"
+        items += [n, f"{n.capitalize()} - {PREFIXES[n][2]} ({state})"]
+    pick = kdialog("--menu", html(
+        "Choose a prefix",
+        "Shared fits most games. Legacy adds video playback and .NET 4.8 for old games "
+        "(it can break videos in newer ones). Custom has the components you pick."),
+        *items, "reset", "Reset prefix (advanced)", size="760x520")
+    if pick is None:
+        return
+    if pick == "reset":
+        gui_reset(protons, conf)
+    elif pick == "custom":
+        gui_custom(protons, conf)
+    else:
+        gui_fixed(protons, conf, pick)
+
+
+def gui_fixed(protons, conf, name):
+    if exists(name):
+        tool = current_tool(protons, conf, name)
+        action, todo = plan(name, tool, PREFIXES[name][1], conf)
+        if todo:  # an earlier install failed on some components
+            with_progress(step_count(action, todo, False), run_apply, name, tool, PREFIXES[name][1])
+        show_line(f"{name.capitalize()} prefix", name, tool, games_text(pdir(name)))
+        return
+    tool = pick_proton(protons, conf, name, f"Proton for the {name} prefix",
+                       "Games on this prefix must run on this Proton or a newer one.",
+                       "Steam default needs no extra settings in Steam.")
+    if tool is None:
+        return
+    components = PREFIXES[name][1]
+    with_progress(step_count("create", components, False), run_apply, name, tool, components)
+    show_line(f"{name.capitalize()} prefix is ready", name, tool)
+
+
+def gui_custom(protons, conf):
+    if exists("custom"):
         pick = kdialog("--menu", html(
-            "Shared prefix is ready",
-            f"Proton: {conf.get('proton_name', '-')}",
-            "Components: " + (", ".join(label[v] for v in conf["components"]) or "none"),
+            "Custom prefix",
+            f"Proton: {conf['custom'].get('proton_name', '-')}",
+            "Components: " + (", ".join(LABEL[v] for v in conf["custom"]["components"]) or "none"),
             "What do you want to do?"),
             "line", "Copy the Launch Options line",
             "change", "Change Proton or components", size="760x520")
         if pick is None:
             return
         if pick == "line":
-            show_line("Launch Options line", cur)
+            show_line("Custom prefix", "custom", current_tool(protons, conf, "custom"),
+                      games_text(pdir("custom")))
             return
 
-    default = steam_default_tool() or ""
-    items = []
-    for i, t in enumerate(protons):
-        notes = [x for x, ok in (("Steam default", tool_matches(t, default)),
-                                 ("used now", t["key"] == conf.get("proton"))) if ok]
-        items += [str(i), t["name"] + (f"  ({', '.join(notes)})" if notes else ""), "on" if t is cur else "off"]
-    choice = kdialog("--radiolist", html(
-        "Step 1 of 2: Proton",
-        "Games that use the shared prefix must run on the same Proton.",
-        "Steam default needs no extra settings in Steam."), *items, size="760x560")
-    if choice is None:
+    tool = pick_proton(protons, conf, "custom", "Step 1 of 2: Proton",
+                       "Games that use the custom prefix must run on the same Proton.",
+                       "Steam default needs no extra settings in Steam.")
+    if tool is None:
         return
-    tool = protons[int(choice)]
-
-    chosen = conf["components"] or [c[0] for c in COMPONENTS if c[2]]
+    chosen = conf["custom"]["components"] or [c[0] for c in COMPONENTS if c[2]]
     items = []
     for verb, _, _ in COMPONENTS:
         items += [verb, GUI_LABELS[verb], "on" if verb in chosen else "off"]
@@ -594,52 +799,98 @@ def gui_steps():
         return
     components = picked.split()
 
-    action, todo = plan(tool, components, conf)
-    if action == "rebuild":
-        old = f"{os.path.basename(PREFIX)}.backup-<date>"
-        if kdialog("--continue-label", "Rebuild", "--warningcontinuecancel", html(
-                "The prefix will be rebuilt",
-                "Removing components or changing Proton needs a new prefix. All ticked components "
-                "will be installed again, which takes a few minutes.",
-                "Game saves and settings (the Windows user folder) are copied to the new prefix.",
-                f"The current prefix is kept as {old} just in case.")) is None:
-            return
+    action, todo = plan("custom", tool, components, conf)
+    if action == "rebuild" and not confirm_rebuild("custom", "Removing components or changing Proton "
+                                                   "needs a new prefix. All ticked components will be "
+                                                   "installed again, which takes a few minutes."):
+        return
     if action != "add" or todo:
-        prog = Progress(len(todo) + {"add": 0, "create": 1, "rebuild": 2}[action])
-        progress_hook = prog
-        try:
-            run_apply(tool, components, yes=True)
-        finally:
-            prog.close()
-            progress_hook = None
-
-    show_line("Shared prefix is ready" if action != "add" or todo else "Nothing to change", tool)
+        with_progress(step_count(action, todo, False), run_apply, "custom", tool, components, yes=True)
+    show_line("Custom prefix is ready" if action != "add" or todo else "Nothing to change", "custom", tool)
 
 
-def uninstall(use_gui, delete_prefix=False):
-    """Remove the program, menu entry and settings. The prefix stays unless asked (game saves)."""
+def confirm_rebuild(name, why):
+    return kdialog("--continue-label", "Rebuild", "--warningcontinuecancel", html(
+        f"The {name} prefix will be rebuilt",
+        why,
+        games_text(pdir(name)),
+        "Game saves and settings (the Windows user folder) are copied to the new prefix. "
+        f"The current prefix is moved to {BACKUPS} just in case.")) is not None
+
+
+def gui_reset(protons, conf):
+    built = [n for n in FIXED if exists(n)]
+    if not built:
+        kdialog("--msgbox", html("Nothing to reset", "Neither the shared nor the legacy prefix is built yet."))
+        return
+    if len(built) == 1:
+        name = built[0]
+    else:
+        name = kdialog("--menu", html("Reset prefix", "Which prefix?"),
+                       *[x for n in built for x in (n, n.capitalize())], size="760x420")
+        if name is None:
+            return
+    tool = pick_proton(protons, conf, name, f"Reset the {name} prefix",
+                       "Only when it is broken or to go back to an older Proton. "
+                       "A newer Proton upgrades the prefix by itself.")
+    if tool is None:
+        return
+    if not confirm_rebuild(name, "All its components will be installed again, which takes a few minutes."):
+        return
+    components = PREFIXES[name][1]
+    with_progress(step_count("rebuild", components, False), run_apply, name, tool, components,
+                  yes=True, reset=True)
+    show_line(f"{name.capitalize()} prefix is ready", name, tool)
+
+
+def gui_migrate(protons, conf):
+    old_games = games_using(OLD_PREFIX)
+    if kdialog("--continue-label", "Move", "--warningcontinuecancel", html(
+            "Moving to version 2",
+            f"Version 2 keeps its prefixes in {BASE}.",
+            "The shared prefix is built there with the safe set of components, and game saves "
+            f"are copied from {OLD_PREFIX}. The old folder stays as a backup.",
+            "This takes a few minutes."), size="760x480") is None:
+        return
+    tool = None
+    for t in protons:
+        if conf["v1"].get("proton") == t["key"]:
+            tool = t
+    tool = tool or current_tool(protons, conf, "shared")
+    with_progress(step_count("create", SAFE, True), migrate, tool)
+    show_line("Shared prefix is ready", "shared", tool,
+              ("Paste the new line into these games (they still use the old folder): "
+               + ", ".join(old_games) + ".") if old_games else
+              "No non-Steam game uses the old folder.")
+
+
+def uninstall(use_gui, delete_prefixes=False):
+    """Remove the program, menu entry and settings. The prefixes stay unless asked (game saves)."""
     if running_install():
         raise Error("An installation is running. Wait until it finishes.")
+    built = [pdir(n) for n in PREFIXES if os.path.isdir(pdir(n))]
     if use_gui:
         if kdialog("--yesno", html("Uninstall Elemental Prefix?",
                                    "Removes the app and its menu entry.")) is None:
             return
-        if os.path.isdir(PREFIX):
-            delete_prefix = kdialog("--warningyesno", html(
-                "Also delete the shared prefix?",
-                f"{PREFIX}",
-                "Games that use it will stop working, and game saves kept inside it will be lost. "
-                "Choose No to keep it.")) is not None
-    if delete_prefix and prefix_in_use():
-        raise Error("A game is using the shared prefix. Close it and try again.")
-    for p in (DESKTOP, CONF):
+        if built:
+            delete_prefixes = kdialog("--warningyesno", html(
+                "Also delete the prefixes?",
+                *built,
+                "Games that use them will stop working, and game saves kept inside them will be lost. "
+                "Choose No to keep them.")) is not None
+    if delete_prefixes and any(in_use(p) for p in built):
+        raise Error("A game is using a prefix. Close it and try again.")
+    for p in (DESKTOP, CONF, APP, LOG, STATE):
         if os.path.exists(p):
             os.remove(p)
-    shutil.rmtree(PROGRAM_DIR, ignore_errors=True)
-    if delete_prefix:
-        shutil.rmtree(PREFIX, ignore_errors=True)
-    msg = "Elemental Prefix uninstalled." + ("" if delete_prefix or not os.path.isdir(PREFIX)
-                                            else f"\nThe shared prefix stays in {PREFIX}.")
+    if delete_prefixes:
+        shutil.rmtree(BASE, ignore_errors=True)
+    else:
+        shutil.rmtree(os.path.join(BASE, "__pycache__"), ignore_errors=True)
+    msg = "Elemental Prefix uninstalled."
+    if built and not delete_prefixes:
+        msg += f"\nThe prefixes stay in {BASE}."
     if use_gui:
         kdialog("--msgbox", html(*msg.split("\n")))
     else:
@@ -656,20 +907,28 @@ def find_tool(protons, name):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="elemental-prefix.py", description="One shared Proton prefix for non-Steam games.")
+    ap = argparse.ArgumentParser(prog="elemental-prefix.py", description="Shared Proton prefixes for non-Steam games.")
     ap.add_argument("--version", action="version", version=f"Elemental Prefix {VERSION}")
     sub = ap.add_subparsers(dest="cmd")  # no command: dialogs
     sub.add_parser("protons")
     sub.add_parser("components")
     sub.add_parser("status")
     a = sub.add_parser("apply")
+    a.add_argument("prefix", choices=list(PREFIXES))
     a.add_argument("--proton")
-    a.add_argument("--components", help="comma-separated winetricks verbs; default: current or preselected")
-    a.add_argument("--yes", action="store_true", help="allow rebuilding the prefix")
-    sub.add_parser("line")
+    a.add_argument("--components", help="custom only: comma-separated winetricks verbs")
+    a.add_argument("--yes", action="store_true", help="allow rebuilding the custom prefix")
+    r = sub.add_parser("reset")
+    r.add_argument("prefix", choices=list(FIXED))
+    r.add_argument("--proton")
+    r.add_argument("--yes", action="store_true")
+    m = sub.add_parser("migrate")
+    m.add_argument("--proton")
+    ln = sub.add_parser("line")
+    ln.add_argument("prefix", choices=list(PREFIXES))
     u = sub.add_parser("uninstall")
     u.add_argument("--gui", action="store_true", help="ask with dialogs (used by the menu entry)")
-    u.add_argument("--delete-prefix", action="store_true", help="also delete the shared prefix")
+    u.add_argument("--delete-prefixes", action="store_true", help="also delete the prefixes and backups")
     args = ap.parse_args()
     if args.cmd is None:
         return gui()
@@ -680,44 +939,78 @@ def main():
             except Error as e:
                 kdialog("--error", html("Something went wrong", str(e)))
                 return
-        return uninstall(False, args.delete_prefix)
+        return uninstall(False, args.delete_prefixes)
 
     protons = find_protons()
     conf = load_conf()
+
+    def tool_for(name, explicit):
+        tool = find_tool(protons, explicit) if explicit else current_tool(protons, conf, name)
+        if tool is None:
+            raise Error("No Proton found. Install one in Steam first.")
+        return tool
+
     if args.cmd == "protons":
-        cur = current_tool(protons, conf)
+        cur = current_tool(protons, conf, "shared")
         for t in protons:
             print(f"{'*' if t is cur else ' '} {t['name']:28} {t['dir']}")
     elif args.cmd == "components":
-        chosen = conf["components"] or [c[0] for c in COMPONENTS if c[2]]
+        chosen = conf["custom"]["components"] or [c[0] for c in COMPONENTS if c[2]]
         for verb, label, _ in COMPONENTS:
-            print(f"{'*' if verb in chosen else ' '} {verb:16} {label}")
+            print(f"{'*' if verb in chosen else ' '} {verb:16} {label}"
+                  + ("  (shared)" if verb in SAFE else "  (legacy)"))
     elif args.cmd == "status":
-        exists = os.path.isdir(os.path.join(PREFIX, "pfx"))
-        print(f"prefix:     {PREFIX} ({'ready' if exists else 'not created'})")
-        print(f"proton:     {conf.get('proton_name', '-')}")
-        print(f"components: {' '.join(conf['components']) or '-'}")
-        print(f"launch:     {LINE}")
+        for n in PREFIXES:
+            c = conf[n]
+            print(f"{n}: {pdir(n)} ({'ready' if exists(n) else 'not built'})")
+            if exists(n):
+                print(f"  built with: {c.get('proton_name', '-')}, last run: {proton_version(n) or '-'}")
+                print(f"  components: {' '.join(c['components']) or '-'}")
+                print(f"  {games_text(pdir(n))}")
+        if os.path.isdir(OLD_PREFIX):
+            print(f"version 1 prefix: {OLD_PREFIX} ({'moved' if conf.get('migrated') == '1' else 'not moved yet'})")
+            old = games_using(OLD_PREFIX)
+            if old:
+                print("  still used by: " + ", ".join(old))
         busy = running_install()
         print(f"installing: {busy[0]} (for {busy[1]})" if busy else "installing: no")
-    elif args.cmd == "apply":
-        tool = find_tool(protons, args.proton) if args.proton else current_tool(protons, conf)
-        if tool is None:
-            raise Error("No Proton found. Install one in Steam first.")
-        if args.components is not None:
+    elif args.cmd in ("apply", "reset"):
+        name = args.prefix
+        if name in FIXED:
+            if getattr(args, "components", None):
+                raise Error(f"The {name} prefix has a fixed set of components.")
+            if args.cmd == "apply" and exists(name) and args.proton:
+                print("The prefix exists: a newer Proton upgrades it by itself. "
+                      f"To build it again: elemental-prefix.py reset {name} --proton NAME --yes")
+                args.proton = None
+            components = PREFIXES[name][1]
+        elif args.components is not None:
             components = [c.strip() for c in args.components.split(",") if c.strip()]
             bad = [c for c in components if c not in VERBS]
             if bad:
                 raise Error("Unknown component: " + ", ".join(bad))
         else:
-            components = conf["components"] or [c[0] for c in COMPONENTS if c[2]]
-        run_apply(tool, components, args.yes)
-        copied = copy_line()
+            components = conf["custom"]["components"] or [c[0] for c in COMPONENTS if c[2]]
+        if args.cmd == "reset" and not exists(name):
+            raise Error(f"The {name} prefix is not built yet. Use: elemental-prefix.py apply {name}")
+        tool = tool_for(name, args.proton)
+        run_apply(name, tool, components, args.yes, reset=args.cmd == "reset")
+        copied = copy_line(line(name))
         print("\nDone. Launch Options line" + (" (copied to the clipboard)" if copied else "") + ":")
-        print(f"  {LINE}")
-        print(done_text(tool))
+        print(f"  {line(name)}")
+        print(done_text(name, tool))
+    elif args.cmd == "migrate":
+        old_games = games_using(OLD_PREFIX)
+        tool = find_tool(protons, args.proton) if args.proton else next(
+            (t for t in protons if t["key"] == conf["v1"].get("proton")), None) or tool_for("shared", None)
+        migrate(tool)
+        print(f"\nDone. New Launch Options line" + (" (copied to the clipboard)" if copy_line(line("shared")) else "") + ":")
+        print(f"  {line('shared')}")
+        print(f"{OLD_PREFIX} stays as a backup.")
+        if old_games:
+            print("Paste the new line into: " + ", ".join(old_games))
     elif args.cmd == "line":
-        print(LINE + ("\n(copied to the clipboard)" if copy_line() else ""))
+        print(line(args.prefix) + ("\n(copied to the clipboard)" if copy_line(line(args.prefix)) else ""))
 
 
 if __name__ == "__main__":
