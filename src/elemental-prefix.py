@@ -1432,7 +1432,7 @@ def menu_size(paras, n_items):
 
 
 def gui_check(path):
-    """Check game dependencies: right-click on an .exe in Dolphin, or the menu entry's action."""
+    """Set up with Elemental Prefix: right-click on an .exe in Dolphin, or the menu entry's action."""
     if shutil.which("kdialog") is None:
         raise Error("kdialog not found. Run Elemental Prefix in Desktop Mode.")
     try:
@@ -1544,7 +1544,7 @@ Terminal=false
 Actions=check;uninstall;
 
 [Desktop Action check]
-Name=Check game dependencies
+Name=Set up with Elemental Prefix
 Exec=python3 {APP} check --gui
 
 [Desktop Action uninstall]
@@ -1560,7 +1560,7 @@ Actions=check;
 X-KDE-Priority=TopLevel
 
 [Desktop Action check]
-Name=Check game dependencies
+Name=Set up with Elemental Prefix
 Icon=applications-games
 Exec=python3 {APP} check --gui %f
 """)

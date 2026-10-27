@@ -165,9 +165,9 @@ STEAM_COMPAT_DATA_PATH=/home/deck/.local/share/elemental-prefix/shared-prefix PR
   każdej gry z `config/config.vdf` Steama (`CompatToolMapping`, klucz = `appid` skrótu; tylko
   odczyt) i ostrzega, gdy gra na jednym z jej prefiksów ma innego Protona niż prefiks (np. „Fantasy
   Life runs on Proton Experimental – set GE-Proton11-11”). Pokazywane obok listy gier przy wyborze
-  prefiksu i w Check game dependencies.
+  prefiksu i w Set up with Elemental Prefix.
 
-### Check game dependencies
+### Set up with Elemental Prefix
 
 Prawy klik na `.exe` gry w Dolphinie (service menu) albo ta sama akcja w pozycji aplikacji w menu.
 Działa bez Steama: czyta pliki gry.
@@ -215,7 +215,7 @@ instalator; użytkownik eksportuje klucz `regedit` na PC. Sprawdzanie proponuje 
    ze skryptu.
 5. Trzy prefiksy w nowym miejscu, bezpieczny zestaw, legacy, lista custom, Reset prefix, przejście
    z wersji 1. **Gotowe, sprawdzone na Decku 2026-10-27.**
-6. Check game dependencies: importy, .NET, Bink, folder gry, wybór prefiksu, doinstalowanie
+6. Set up with Elemental Prefix: importy, .NET, Bink, folder gry, wybór prefiksu, doinstalowanie
    brakujących składników do custom. **Gotowe, sprawdzone na Decku 2026-10-27.** `.exe` w folderze
    wspólnym dla wielu gier (dysk, biblioteka Steama, katalog domowy) jest sprawdzany sam, bez
    podfolderów; „not found” pokazuje tylko zwykłe (nie opóźnione) importy `.exe` i DLL obok niego.

@@ -18,7 +18,7 @@ STEAM_COMPAT_DATA_PATH=/home/deck/.local/share/elemental-prefix/shared-prefix PR
 <table>
   <tr>
     <td><img src="docs/screenshots/menu.png" width="380" alt="Wybór prefiksu"></td>
-    <td><img src="docs/screenshots/check.png" width="380" alt="Check game dependencies"></td>
+    <td><img src="docs/screenshots/check.png" width="380" alt="Set up with Elemental Prefix"></td>
   </tr>
   <tr>
     <td><img src="docs/screenshots/progress.png" width="380" alt="Budowa prefiksu"></td>
@@ -66,9 +66,9 @@ przy pierwszym wyborze.
 3. W **Właściwości → Zgodność** ustaw tego samego Protona co w pozostałych grach na tym prefiksie
    (przy domyślnym Protonie Steama nic nie trzeba ustawiać).
 
-### Check game dependencies
+### Set up with Elemental Prefix
 
-W Dolphinie kliknij prawym przyciskiem `.exe` gry i wybierz **Check game dependencies** (albo
+W Dolphinie kliknij prawym przyciskiem `.exe` gry i wybierz **Set up with Elemental Prefix** (albo
 kliknij prawym Elemental Prefix w menu aplikacji). Sprawdzanie tylko czyta pliki:
 
 - biblioteki, których używają programy gry, i czy gra ma je przy sobie;

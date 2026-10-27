@@ -17,7 +17,7 @@ STEAM_COMPAT_DATA_PATH=/home/deck/.local/share/elemental-prefix/shared-prefix PR
 <table>
   <tr>
     <td><img src="docs/screenshots/menu.png" width="380" alt="Choosing a prefix"></td>
-    <td><img src="docs/screenshots/check.png" width="380" alt="Check game dependencies"></td>
+    <td><img src="docs/screenshots/check.png" width="380" alt="Set up with Elemental Prefix"></td>
   </tr>
   <tr>
     <td><img src="docs/screenshots/progress.png" width="380" alt="Building a prefix"></td>
@@ -65,9 +65,9 @@ choose it.
 3. In **Properties → Compatibility** use the same Proton as the other games on that prefix
    (with Steam's default there is nothing to set).
 
-### Check game dependencies
+### Set up with Elemental Prefix
 
-In Dolphin, right-click the game's `.exe` and choose **Check game dependencies** (or right-click
+In Dolphin, right-click the game's `.exe` and choose **Set up with Elemental Prefix** (or right-click
 Elemental Prefix in the application menu). The check only reads files:
 
 - the libraries the game's programs import, and whether the game ships them itself;

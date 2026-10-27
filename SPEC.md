@@ -165,9 +165,9 @@ STEAM_COMPAT_DATA_PATH=/home/deck/.local/share/elemental-prefix/shared-prefix PR
   Steam's `config/config.vdf` (`CompatToolMapping`, key = the shortcut's `appid`; read only) and
   warns when a game on one of its prefixes uses a different Proton than the prefix (e.g. "Fantasy
   Life runs on Proton Experimental – set GE-Proton11-11"). Shown next to the game list when a
-  prefix is chosen and in Check game dependencies.
+  prefix is chosen and in Set up with Elemental Prefix.
 
-### Check game dependencies
+### Set up with Elemental Prefix
 
 Right-click a game's `.exe` in Dolphin (service menu), or the same action in the app's menu entry.
 Works without Steam: it reads the game files.
@@ -214,7 +214,7 @@ game folder.
    service menu on `.exe` and `.reg`; calling SteamOS's "Add to Steam" from a script.
 5. Three prefixes in the new place, safe set, legacy, custom checklist, Reset prefix, moving from
    version 1. **Done, passed on the Deck 2026-10-27.**
-6. Check game dependencies: imports, .NET, Bink, game folder, prefix recommendation, installing
+6. Set up with Elemental Prefix: imports, .NET, Bink, game folder, prefix recommendation, installing
    missing components into custom. **Done, passed on the Deck 2026-10-27.** An `.exe` in a folder
    shared by many games (a drive, a Steam library, the home folder) is checked alone, without
    subfolders; "not found" lists only normal (not delay-loaded) imports of the `.exe` and the DLLs

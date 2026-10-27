@@ -22,7 +22,7 @@ python3 -c "import ast, sys; ast.parse(open(sys.argv[1]).read())" "$APP.part"
 mv -f "$APP.part" "$APP"
 chmod +x "$APP"
 
-# Menu entry and the right-click "Check game dependencies" in Dolphin
+# Menu entry and the right-click "Set up with Elemental Prefix" in Dolphin
 python3 "$APP" setup
 
 echo "Elemental Prefix installed."
