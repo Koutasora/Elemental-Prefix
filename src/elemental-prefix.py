@@ -1552,14 +1552,15 @@ Name=Uninstall Elemental Prefix
 Exec=python3 {APP} uninstall --gui
 """)
     os.makedirs(os.path.dirname(SERVICE_MENU), exist_ok=True)
+    # Dolphin remembers hidden entries by action name alone, so the names are our own.
     with open(SERVICE_MENU, "w", encoding="utf-8") as f:
         f.write(f"""[Desktop Entry]
 Type=Service
 MimeType=application/x-ms-dos-executable;application/x-msdownload;application/vnd.microsoft.portable-executable;application/x-ms-ne-executable;
-Actions=check;
+Actions=elementalPrefixSetup;
 X-KDE-Priority=TopLevel
 
-[Desktop Action check]
+[Desktop Action elementalPrefixSetup]
 Name=Set up with Elemental Prefix
 Icon=applications-games
 Exec=python3 {APP} check --gui %f
@@ -1568,10 +1569,10 @@ Exec=python3 {APP} check --gui %f
         f.write(f"""[Desktop Entry]
 Type=Service
 MimeType=text/x-ms-regedit;
-Actions=import;
+Actions=elementalPrefixImport;
 X-KDE-Priority=TopLevel
 
-[Desktop Action import]
+[Desktop Action elementalPrefixImport]
 Name=Import to Elemental Prefix
 Icon=applications-games
 Exec=python3 {APP} import-reg --gui %f
