@@ -16,6 +16,7 @@ Without arguments it shows KDE dialogs (kdialog). The commands do the same from 
   elemental-prefix.py migrate [--proton NAME]            move from version 1 (~/Games/shared-prefix)
   elemental-prefix.py line PREFIX                        copy the Launch Options line
   elemental-prefix.py check GAME.exe [--gui]             check what a game needs
+  elemental-prefix.py import-reg FILE.reg [--prefix NAME] import registry keys into a prefix
   elemental-prefix.py setup                              write the menu entries (used by install.sh)
   elemental-prefix.py uninstall [--delete-prefixes]      remove the app (prefixes stay by default)
 """
@@ -44,6 +45,7 @@ LOG = os.path.join(BASE, "install.log")
 STATE = os.path.join(BASE, "running")  # pid, start time, current step
 DESKTOP = os.path.join(HOME, ".local/share/applications/elemental-prefix.desktop")
 SERVICE_MENU = os.path.join(HOME, ".local/share/kio/servicemenus/elemental-prefix.desktop")
+SERVICE_MENU_REG = os.path.join(HOME, ".local/share/kio/servicemenus/elemental-prefix-reg.desktop")
 VERSION = "2.0.0"
 FLATPAK_APP = "com.github.Matoking.protontricks"
 
@@ -929,6 +931,18 @@ def check_game(exe):
         report["hints"].append("Old video files (.wmv, .mpg, .avi): if videos stay black, use the legacy prefix.")
 
     report["uses"], report["shortcut"] = game_prefix(exe, root)
+    # Registry: keys named in the .exe and the DLLs next to it, plus what an Inno Setup installer wrote
+    report["regs"] = sorted(p for n, p in files.items() if n.endswith(".reg"))[:5]
+    target = report["uses"] if report["uses"] in PREFIXES else next((n for n in PREFIXES if exists(n)), None)
+    if target and exists(target):
+        cands = set()
+        for p in [exe] + [x for x in pe_files if os.path.normcase(os.path.dirname(x)) == exe_dir_n and x.lower().endswith(".dll")][:50]:
+            cands |= registry_strings(p)
+        if "unins000.dat" in files:
+            cands |= registry_strings(files["unins000.dat"])
+        report["keys"], report["keys_prefix"] = missing_keys(cands, target)[:5], target
+    else:
+        report["keys"], report["keys_prefix"] = [], None
     game = report["shortcut"]
     report["log"] = read_proton_log(game["appid"]) if game and game["appid"] is not None else None
     lg = report["log"]
@@ -944,6 +958,76 @@ def check_game(exe):
     need = set(report["needs"])
     report["prefix"] = "legacy" if need - set(SAFE) else "shared"
     return report
+
+
+# ---------- registry ----------
+
+# Keys every Windows (or Wine) has, or that tools and drivers write: not worth a hint.
+COMMON_KEYS = ("microsoft", "classes", "policies", "clients", "wine", "khronos", "nvidia", "nvidia corporation",
+               "amd", "ati technologies", "intel", "realtek", "valve", "epic games", "unity technologies",
+               "google", "mozilla", "oculus", "openxr", "vulkan", "borland", "embarcadero", "codegear",
+               "odbc", "rad game tools", "wow6432node\\microsoft", "description", "system", "setup")
+REG_ASCII = re.compile(rb"(?i)software\\[\x20-\x7e]{3,120}")
+REG_UTF16 = re.compile(rb"(?i)s\0o\0f\0t\0w\0a\0r\0e\0\\\0(?:[\x20-\x7e]\0){3,120}")
+
+
+def registry_strings(path):
+    """Registry paths under SOFTWARE written as text (ASCII or UTF-16) in a file, as 'Vendor\\Product'."""
+    try:
+        with open(path, "rb") as f:
+            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+    except (OSError, ValueError):
+        return set()
+    found = set()
+    with mm:
+        hits = [m.group(0).decode("ascii", "replace") for m in REG_ASCII.finditer(mm)]
+        hits += [m.group(0).decode("utf-16-le", "replace") for m in REG_UTF16.finditer(mm)]
+    for h in hits:
+        parts = [p for p in h.replace("\\\\", "\\").split("\\")[1:] if p]
+        if parts and parts[0].lower() == "wow6432node":
+            parts = parts[1:]
+        if len(parts) < 2 or any(c in h for c in "%{}*?<>|\"") or parts[0].lower() in COMMON_KEYS:
+            continue
+        found.add("\\".join(parts[:2]))  # Vendor\Product is enough to tell whether the game's key is there
+    return found
+
+
+def prefix_keys(name):
+    """Lower-case key paths in a prefix's registry (system.reg = HKLM, user.reg = HKCU)."""
+    keys = set()
+    for reg in ("system.reg", "user.reg"):
+        try:
+            with open(os.path.join(pdir(name), "pfx", reg), encoding="utf-8", errors="replace") as f:
+                for ln in f:
+                    if ln.startswith("["):
+                        keys.add(ln[1:ln.find("]")].replace("\\\\", "\\").lower())
+        except OSError:
+            pass
+    return keys
+
+
+def missing_keys(candidates, name):
+    """Candidates ('Vendor\\Product') with no matching key under Software in the prefix."""
+    keys = prefix_keys(name)
+    out = []
+    for c in sorted(candidates):
+        low = c.lower()
+        if not any(k == f"software\\{low}" or k.startswith(f"software\\{low}\\")
+                   or k == f"software\\wow6432node\\{low}" or k.startswith(f"software\\wow6432node\\{low}\\")
+                   for k in keys):
+            out.append(c)
+    return out
+
+
+def import_reg(name, reg_file, tool):
+    """Import a .reg file (exported with regedit on the PC) into one of the prefixes."""
+    if in_use(pdir(name)):
+        raise Error("A game is using the prefix. Close it and try again.")
+    env = dict(os.environ, STEAM_COMPAT_DATA_PATH=pdir(name), STEAM_COMPAT_CLIENT_INSTALL_PATH=STEAM)
+    win_path = "Z:" + os.path.abspath(reg_file).replace("/", "\\")
+    log(f"\n##### {datetime.datetime.now():%Y-%m-%d %H:%M:%S} import {reg_file} into {name}")
+    if run_logged([os.path.join(tool["dir"], "proton"), "run", "regedit", "/S", win_path], env) != 0:
+        raise Error(f"Importing failed. Details: {LOG}")
 
 
 def log_path(appid):
@@ -1032,6 +1116,12 @@ def report_lines(r, custom_components):
                 f"{k[:90]}{' (x' + str(n) + ')' if n > 1 else ''}" for k, n in other))
     elif r["shortcut"] and r["uses"] in PREFIXES:
         out.append("No Proton log yet. If the game does not start, start it once and check again.")
+    if r.get("keys"):
+        out.append(f"Registry keys the game probably reads and the {r['keys_prefix']} prefix lacks: "
+                   + ", ".join("SOFTWARE\\" + k for k in r["keys"]) + ". If it says it is not installed or asks "
+                   "for a CD key, export them with regedit on the PC and import the .reg here.")
+    if r.get("regs"):
+        out.append("Registry file in the game folder: " + ", ".join(os.path.relpath(p, r["root"]) for p in r["regs"][:3]) + ".")
     uses = r["uses"]
     out.append("Uses now: " + (f"the {uses} prefix" if uses in PREFIXES else uses) + ".")
     game = r["shortcut"]
@@ -1356,6 +1446,8 @@ def gui_check(path):
                           else f"Build the {rec} prefix (not built yet)")]
         add = [v for v in VERBS if v in r["needs"] and v not in conf["custom"]["components"]]
         items += ["custom", "Use the custom prefix" + (f" (adds {len(add)})" if add and exists("custom") else "")]
+        for i, reg in enumerate(r["regs"][:3]):
+            items += [f"reg{i}", f"Import {os.path.basename(reg)[:30]} to a prefix"]
         if r["shortcut"] is None and shutil.which("steamos-add-to-steam"):
             items = ["steam", f"Add to Steam, then the {rec} prefix line"] + items
         pick = kdialog("--menu", html(f"Check: {os.path.basename(path)}", *report_lines(r, conf["custom"]["components"])),
@@ -1370,6 +1462,9 @@ def gui_check(path):
         protons = find_protons()
         if not protons:
             kdialog("--error", html("No Proton found", "Install a Proton in Steam first (Library > Tools)."))
+            return
+        if pick.startswith("reg"):
+            gui_import_reg(r["regs"][int(pick[3:])], r["keys_prefix"] or rec)
             return
         if pick == "steam":
             # No captured output: the steam command can hand its stdout to the running Steam,
@@ -1401,6 +1496,30 @@ def gui_check(path):
         if action != "add" or todo:
             with_progress(step_count(action, todo, False), run_apply, "custom", tool, components)
         show_line("Custom prefix is ready", "custom", tool, env=r["env"], game=r["shortcut"])
+    except Error as e:
+        kdialog("--error", html("Something went wrong", str(e)))
+
+
+def gui_import_reg(path, preferred=None):
+    """Right-click on a .reg file, or from the check: choose a prefix and import the file."""
+    if shutil.which("kdialog") is None:
+        raise Error("kdialog not found. Run Elemental Prefix in Desktop Mode.")
+    try:
+        built = [n for n in PREFIXES if exists(n)]
+        if not built:
+            kdialog("--sorry", html("No prefix yet", "Build a prefix first: open Elemental Prefix from the menu."))
+            return
+        items = []
+        for n in built:
+            items += [n, f"{n.capitalize()} - {PREFIXES[n][2]}", "on" if n == (preferred if preferred in built else built[0]) else "off"]
+        name = kdialog("--radiolist", html(
+            f"Import {os.path.basename(path)}",
+            "Adds the registry keys from this file (exported with regedit on a PC) to the chosen prefix. "
+            "Old games read their install path or CD key from there."), *items, size="760x460")
+        if name is None:
+            return
+        import_reg(name, path, current_tool(find_protons(), load_conf(), name))
+        kdialog("--msgbox", html("Imported", f"{os.path.basename(path)} is in the {name} prefix."))
     except Error as e:
         kdialog("--error", html("Something went wrong", str(e)))
 
@@ -1440,7 +1559,20 @@ Name=Check game dependencies
 Icon=applications-games
 Exec=python3 {APP} check --gui %f
 """)
-    os.chmod(SERVICE_MENU, 0o755)  # Plasma 6 ignores service menus that are not executable
+    with open(SERVICE_MENU_REG, "w", encoding="utf-8") as f:
+        f.write(f"""[Desktop Entry]
+Type=Service
+MimeType=text/x-ms-regedit;
+Actions=import;
+X-KDE-Priority=TopLevel
+
+[Desktop Action import]
+Name=Import to Elemental Prefix
+Icon=applications-games
+Exec=python3 {APP} import-reg --gui %f
+""")
+    for m in (SERVICE_MENU, SERVICE_MENU_REG):
+        os.chmod(m, 0o755)  # Plasma 6 ignores service menus that are not executable
     if shutil.which("kbuildsycoca6"):
         subprocess.run(["kbuildsycoca6"], capture_output=True)
 
@@ -1462,7 +1594,7 @@ def uninstall(use_gui, delete_prefixes=False):
                 "Choose No to keep them.")) is not None
     if delete_prefixes and any(in_use(p) for p in built):
         raise Error("A game is using a prefix. Close it and try again.")
-    for p in (DESKTOP, SERVICE_MENU, CONF, APP, LOG, STATE):
+    for p in (DESKTOP, SERVICE_MENU, SERVICE_MENU_REG, CONF, APP, LOG, STATE):
         if os.path.exists(p):
             os.remove(p)
     if delete_prefixes:
@@ -1507,6 +1639,10 @@ def main():
     m.add_argument("--proton")
     ln = sub.add_parser("line")
     ln.add_argument("prefix", choices=list(PREFIXES))
+    ir = sub.add_parser("import-reg")
+    ir.add_argument("file")
+    ir.add_argument("--prefix", choices=list(PREFIXES), default="shared")
+    ir.add_argument("--gui", action="store_true", help="choose the prefix in a dialog (used by Dolphin)")
     c = sub.add_parser("check")
     c.add_argument("exe", nargs="?")
     c.add_argument("--gui", action="store_true", help="show the result in a dialog (used by the menus)")
@@ -1519,6 +1655,14 @@ def main():
         return gui()
     if args.cmd == "setup":
         return setup()
+    if args.cmd == "import-reg":
+        if args.gui:
+            return gui_import_reg(args.file)
+        if not exists(args.prefix):
+            raise Error(f"The {args.prefix} prefix is not built yet.")
+        import_reg(args.prefix, args.file, current_tool(find_protons(), load_conf(), args.prefix))
+        print(f"Imported into the {args.prefix} prefix.")
+        return
     if args.cmd == "check":
         if args.gui:
             return gui_check(args.exe)
