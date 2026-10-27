@@ -101,8 +101,130 @@ Running the app again:
 3. Installer (`curl … install.sh | bash`), menu entry with an Uninstall action, README (EN + PL),
    MIT license. **Done.**
 
+## Version 2 (planned 2026-10-27)
+
+Version 1 asks which components to install. Version 2 drops most of that choice: libraries side by
+side do not hurt games that do not use them, so a fixed safe set covers almost every game. Instead
+the app learns to tell what a game needs. Games are copied to the Deck as ready folders (installed
+on a PC); the app does not install games.
+
+### Prefixes
+
+All in `~/.local/share/elemental-prefix/` on the internal drive (never the SD card: removing the card
+would break every game on the prefix):
+
+| Prefix | Components | Chosen by |
+|---|---|---|
+| `shared-prefix` | safe set: `vcrun2005`, `vcrun2008`, `vcrun2010`, `vcrun2012`, `vcrun2013`, `vcrun2022`, `d3dx9`, `d3dcompiler_47`, `xact`, `physx`, `corefonts` | fixed |
+| `shared-prefix-legacy` | safe set + `quartz` + `dotnet48` | fixed |
+| `shared-prefix-custom` | any from the version 1 checklist | the user |
+
+- `quartz` replaces Proton's built-in video playback and can break videos in games that played them
+  fine, so it is only in legacy. `dotnet48` is large, slow and the most likely to fail, so it is there
+  too. Bink (`binkw32.dll`) and Smacker videos ship with the game and need nothing.
+- Only one custom prefix. Several named ones would turn the app into Bottles.
+- Backups from rebuilds: `~/.local/share/elemental-prefix/backups/`.
+- Game files never go inside a prefix folder. Games installed into a prefix's `Program Files` by
+  hand are lost on a rebuild; the user reinstalls them.
+
+### Changing Proton, rebuilds
+
+- Shared and legacy are built once and then left alone. A newer Proton upgrades an existing prefix
+  by itself on the first game start, so choosing a newer Proton only saves the choice.
+- **Reset prefix (advanced)** rebuilds shared or legacy only when it is broken or for an older
+  Proton. Same backup and save copying as in version 1.
+- Custom keeps the version 1 behaviour: adding components installs them, removing any rebuilds.
+- Before a reset or a custom rebuild the app lists the games that use that prefix.
+
+### Moving from version 1
+
+One time: the prefix is built in the new place, `drive_c/users/steamuser` is copied over, the old
+`~/Games/shared-prefix` stays as a backup. The app lists the games whose Launch Options still point to
+the old path; the user pastes the new line into each.
+
+### Launch Options line
+
+```
+STEAM_COMPAT_DATA_PATH=/home/deck/.local/share/elemental-prefix/shared-prefix PROTON_LOG=1 %command%
+```
+
+- `PROTON_LOG=1` makes Proton write a log the check can read.
+- Other tools add to the same line: variables (e.g. `PROTON_FSR4_UPGRADE=1`), wrappers before
+  `%command%` (e.g. `~/lsfg` from Decky LSFG-VK), game arguments after it. A variable placed after a
+  wrapper or after `%command%` does not work.
+- The copied line is **merged**: the app reads the game's current Launch Options from
+  `shortcuts.vdf` (read only), splits them into variables / wrappers / `%command%` / arguments,
+  drops an old Elemental Prefix entry, puts its own variables at the very start and keeps the rest
+  in the user's order. The user pastes it over the whole old line.
+- The check warns when `STEAM_COMPAT_DATA_PATH` stands after a wrapper or `%command%`, when
+  `%command%` appears twice, or when the line is missing (probably overwritten by another tool).
+
+### Check game dependencies
+
+Right-click a game's `.exe` in Dolphin (service menu), or the same action in the app's menu entry.
+Works without Steam: it reads the game files.
+
+1. **Imports** – reads the PE import tables of the `.exe` and `.dll` files in the game folder and
+   maps them to components (e.g. `MSVCR120.dll` → `vcrun2013`, `d3dx9_43.dll` → `d3dx9`). Python
+   standard library only. Also detects .NET executables (CLR header) and Bink.
+2. **Game folder** – redistributable folders and files (`_CommonRedist`, `Redist`, `DirectX`,
+   `vcredist*.exe`) as hints; `dxgi.dll`, `d3d11.dll`, `d3d12.dll` next to the `.exe` (ReShade and
+   similar mods) → suggests `WINEDLLOVERRIDES="dxgi=n,b"` (or the matching DLL).
+3. **Proton log** – after a failed start, reads `steam-<appid>.log` (app id from `shortcuts.vdf`) and
+   looks for `Library … not found` and similar lines. Lines it does not recognise are shown as an
+   excerpt, without guessing.
+4. **Registry** – registry paths written as text in the `.exe` (`SOFTWARE\…`) and the keys listed in
+   Inno Setup's `unins000.dat` are compared with the prefix registry. Missing ones are reported as
+   "probably needed", with the key name to export on the PC.
+
+The result names the prefix to use (shared, legacy, or custom plus what to add to it), shows which
+prefix the game uses now (shared / legacy / custom / other `STEAM_COMPAT_DATA_PATH` / its own
+`compatdata/<appid>` / not started yet), copies the merged line and, for a game not yet in Steam,
+offers SteamOS's built-in "Add to Steam". Components are installed only into the app's own prefixes,
+never into a game's own prefix.
+
+### Registry import
+
+Right-click a `.reg` file → **Import to Elemental Prefix** → choose the prefix → `wine regedit`.
+Old boxed games read install keys (path, version, CD key) that only their installer writes; the user
+exports the key with `regedit` on the PC. The check also offers to import a `.reg` file found in the
+game folder.
+
+### Documentation notes
+
+- Two games of the same series can write saves to the same `AppData` folder in a shared prefix and
+  overwrite each other; move one of them to custom.
+- No promises like "99 % of games". The prefixes fix missing libraries, not anti-cheat, DRM or
+  Proton bugs.
+
+### Stages
+
+4. **Check on the Deck by hand:** the Protontricks Flatpak with `--filesystem` under
+   `~/.local/share`; a newer Proton upgrading a prefix built outside Steam; `PROTON_LOG=1` log name
+   and place for a non-Steam game; how soon Steam writes Launch Options to `shortcuts.vdf`; a Dolphin
+   service menu on `.exe` and `.reg`; calling SteamOS's "Add to Steam" from a script.
+5. Three prefixes in the new place, safe set, legacy, custom checklist, Reset prefix, moving from
+   version 1.
+6. Check game dependencies: imports, .NET, Bink, game folder, prefix recommendation, installing
+   missing components into custom.
+7. Launch Options: reading `shortcuts.vdf`, merged line, warnings, game lists in reset and move
+   messages, "Add to Steam".
+8. Proton log reading.
+9. Registry hints and `.reg` import.
+10. README (EN + PL) and screenshots.
+
+Nothing gets built before stage 4 passes.
+
+### Ideas to look into later
+
+- protonfixes from the umu database: GE-Proton may apply per-game fixes to a non-Steam game given
+  `UMU_ID`. Unchecked.
+
 ## Not planned
 
-- Editing Steam's shortcuts or Launch Options automatically.
-- Several prefixes.
+- Editing Steam's shortcuts or Launch Options automatically (writing `shortcuts.vdf`).
+- Installing games from installers or archives; games are copied as folders.
+- Logging registry access (`WINEDEBUG=+reg`).
+- Several custom prefixes.
 - Game Mode UI (Decky panel).
+- Patched Proton builds for bypassing copy protection.

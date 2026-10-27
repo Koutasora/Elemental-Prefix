@@ -101,8 +101,131 @@ Ponowne uruchomienie:
 3. Instalator (`curl … install.sh | bash`), pozycja w menu z akcją odinstalowania, README (EN + PL),
    licencja MIT. **Gotowe.**
 
+## Wersja 2 (plan z 2026-10-27)
+
+Wersja 1 pyta, które składniki zainstalować. Wersja 2 rezygnuje z większości tego wyboru: biblioteki
+leżące obok siebie nie przeszkadzają grom, które z nich nie korzystają, więc stały bezpieczny zestaw
+wystarcza prawie każdej grze. W zamian aplikacja uczy się rozpoznawać, czego gra potrzebuje. Gry
+trafiają na Decka jako gotowe foldery (zainstalowane na PC); aplikacja nie instaluje gier.
+
+### Prefiksy
+
+Wszystkie w `~/.local/share/elemental-prefix/` na dysku wewnętrznym (nigdy na karcie SD: wyjęcie karty
+zepsułoby wszystkie gry na prefiksie):
+
+| Prefiks | Składniki | Kto wybiera |
+|---|---|---|
+| `shared-prefix` | bezpieczny zestaw: `vcrun2005`, `vcrun2008`, `vcrun2010`, `vcrun2012`, `vcrun2013`, `vcrun2022`, `d3dx9`, `d3dcompiler_47`, `xact`, `physx`, `corefonts` | stały |
+| `shared-prefix-legacy` | bezpieczny zestaw + `quartz` + `dotnet48` | stały |
+| `shared-prefix-custom` | dowolne z listy z wersji 1 | użytkownik |
+
+- `quartz` podmienia wbudowane odtwarzanie wideo Protona i może zepsuć filmiki w grach, które
+  odtwarzały je dobrze, więc jest tylko w legacy. `dotnet48` jest duży, wolny i najczęściej się
+  wywala, więc też tam. Filmiki Bink (`binkw32.dll`) i Smacker gra przynosi ze sobą, nic nie trzeba.
+- Tylko jeden custom. Kilka nazwanych zrobiłoby z aplikacji Bottles.
+- Kopie z przebudowy: `~/.local/share/elemental-prefix/backups/`.
+- Pliki gier nigdy nie trafiają do folderu prefiksu. Gry zainstalowane ręcznie do `Program Files`
+  prefiksu giną przy przebudowie; użytkownik instaluje je ponownie.
+
+### Zmiana Protona, przebudowa
+
+- Shared i legacy buduje się raz i potem się ich nie dotyka. Nowszy Proton sam aktualizuje
+  istniejący prefiks przy pierwszym starcie gry, więc wybór nowszego Protona tylko zapisuje wybór.
+- **Reset prefix (advanced)** przebudowuje shared albo legacy tylko, gdy się zepsuje, albo dla
+  starszego Protona. Ta sama kopia zapasowa i przenoszenie zapisów co w wersji 1.
+- Custom działa jak wersja 1: dodanie składników je instaluje, usunięcie któregokolwiek przebudowuje.
+- Przed resetem albo przebudową custom aplikacja wypisuje gry, które używają tego prefiksu.
+
+### Przejście z wersji 1
+
+Jednorazowo: prefiks powstaje w nowym miejscu, `drive_c/users/steamuser` zostaje skopiowany, stary
+`~/Games/shared-prefix` zostaje jako kopia. Aplikacja wypisuje gry, których Opcje uruchamiania wciąż
+wskazują starą ścieżkę; użytkownik wkleja każdej nową linijkę.
+
+### Linijka w Opcjach uruchamiania
+
+```
+STEAM_COMPAT_DATA_PATH=/home/deck/.local/share/elemental-prefix/shared-prefix PROTON_LOG=1 %command%
+```
+
+- `PROTON_LOG=1` każe Protonowi zapisywać log, który czyta sprawdzanie.
+- Inne narzędzia dopisują się do tej samej linijki: zmienne (np. `PROTON_FSR4_UPGRADE=1`), wrappery
+  przed `%command%` (np. `~/lsfg` z Decky LSFG-VK), argumenty gry po nim. Zmienna postawiona za
+  wrapperem albo za `%command%` nie działa.
+- Kopiowana linijka jest **składana**: aplikacja czyta obecne Opcje uruchamiania gry z
+  `shortcuts.vdf` (tylko odczyt), dzieli je na zmienne / wrappery / `%command%` / argumenty, usuwa
+  stary wpis Elemental Prefix, swoje zmienne stawia na samym początku, a resztę zostawia w kolejności
+  użytkownika. Użytkownik wkleja ją w miejsce całej starej linijki.
+- Sprawdzanie ostrzega, gdy `STEAM_COMPAT_DATA_PATH` stoi za wrapperem albo `%command%`, gdy
+  `%command%` występuje dwa razy albo gdy linijki brakuje (pewnie nadpisało ją inne narzędzie).
+
+### Check game dependencies
+
+Prawy klik na `.exe` gry w Dolphinie (service menu) albo ta sama akcja w pozycji aplikacji w menu.
+Działa bez Steama: czyta pliki gry.
+
+1. **Importy** – czyta tablice importów PE plików `.exe` i `.dll` w folderze gry i tłumaczy je na
+   składniki (np. `MSVCR120.dll` → `vcrun2013`, `d3dx9_43.dll` → `d3dx9`). Tylko biblioteka
+   standardowa Pythona. Rozpoznaje też pliki .NET (nagłówek CLR) i Bink.
+2. **Folder gry** – foldery i pliki z bibliotekami do doinstalowania (`_CommonRedist`, `Redist`,
+   `DirectX`, `vcredist*.exe`) jako wskazówki; `dxgi.dll`, `d3d11.dll`, `d3d12.dll` obok `.exe`
+   (ReShade i podobne mody) → podpowiedź `WINEDLLOVERRIDES="dxgi=n,b"` (albo z pasującym DLL).
+3. **Log Protona** – po nieudanym starcie czyta `steam-<appid>.log` (numer gry z `shortcuts.vdf`) i
+   szuka linii `Library … not found` i podobnych. Linie, których nie rozpoznaje, pokazuje jako
+   fragment, bez zgadywania.
+4. **Rejestr** – ścieżki rejestru zapisane tekstem w `.exe` (`SOFTWARE\…`) i klucze ze spisu w
+   `unins000.dat` (Inno Setup) porównuje z rejestrem prefiksu. Brakujące podaje jako „prawdopodobnie
+   potrzebne”, z nazwą klucza do wyeksportowania na PC.
+
+Wynik podaje prefiks do użycia (shared, legacy albo custom plus co do niego dodać), pokazuje, którego
+prefiksu gra używa teraz (shared / legacy / custom / inny `STEAM_COMPAT_DATA_PATH` / własny
+`compatdata/<appid>` / jeszcze nie uruchamiana), kopiuje składaną linijkę, a dla gry, której nie ma
+w Steamie, proponuje wbudowane w SteamOS „Add to Steam”. Składniki instaluje tylko do własnych
+prefiksów aplikacji, nigdy do własnego prefiksu gry.
+
+### Import rejestru
+
+Prawy klik na plik `.reg` → **Import to Elemental Prefix** → wybór prefiksu → `wine regedit`.
+Stare gry pudełkowe czytają klucze instalacji (ścieżka, wersja, klucz CD), które zapisuje tylko ich
+instalator; użytkownik eksportuje klucz `regedit` na PC. Sprawdzanie proponuje też import pliku
+`.reg` znalezionego w folderze gry.
+
+### Do dokumentacji
+
+- Dwie gry z jednej serii mogą zapisywać do tego samego folderu w `AppData` we wspólnym prefiksie i
+  nadpisywać sobie zapisy; jedną z nich przenieść na custom.
+- Bez obietnic typu „99 % gier”. Prefiksy naprawiają brakujące biblioteki, nie anty-cheat, DRM ani
+  błędy Protona.
+
+### Etapy
+
+4. **Sprawdzenie ręcznie na Decku:** Flatpak Protontricks z `--filesystem` w `~/.local/share`;
+   aktualizacja prefiksu zbudowanego poza Steamem przez nowszego Protona; nazwa i miejsce logu z
+   `PROTON_LOG=1` dla gry spoza Steama; jak szybko Steam zapisuje Opcje uruchamiania do
+   `shortcuts.vdf`; service menu Dolphina na `.exe` i `.reg`; wywołanie „Add to Steam” z SteamOS
+   ze skryptu.
+5. Trzy prefiksy w nowym miejscu, bezpieczny zestaw, legacy, lista custom, Reset prefix, przejście
+   z wersji 1.
+6. Check game dependencies: importy, .NET, Bink, folder gry, wybór prefiksu, doinstalowanie
+   brakujących składników do custom.
+7. Opcje uruchamiania: odczyt `shortcuts.vdf`, składana linijka, ostrzeżenia, listy gier w
+   komunikatach resetu i przejścia, „Add to Steam”.
+8. Odczyt logu Protona.
+9. Wskazówki rejestru i import `.reg`.
+10. README (EN + PL) i zrzuty ekranu.
+
+Nic nie budujemy, dopóki etap 4 nie przejdzie.
+
+### Do zbadania kiedyś
+
+- protonfixes z bazy umu: GE-Proton może stosować poprawki dla gry spoza Steama, gdy dostanie
+  `UMU_ID`. Niesprawdzone.
+
 ## Poza planem
 
-- Automatyczna edycja skrótów albo Opcji uruchamiania w Steamie.
-- Kilka prefiksów.
+- Automatyczna edycja skrótów albo Opcji uruchamiania w Steamie (zapis `shortcuts.vdf`).
+- Instalowanie gier z instalatorów i archiwów; gry kopiuje się jako foldery.
+- Logowanie dostępu do rejestru (`WINEDEBUG=+reg`).
+- Kilka prefiksów custom.
 - Interfejs w trybie gry (panel Decky).
+- Spatchowane wersje Protona do obchodzenia zabezpieczeń.
