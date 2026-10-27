@@ -221,7 +221,13 @@ instalator; użytkownik eksportuje klucz `regedit` na PC. Sprawdzanie proponuje 
    podfolderów; „not found” pokazuje tylko zwykłe (nie opóźnione) importy `.exe` i DLL obok niego.
    Pozycję w Dolphinie i w menu zapisuje `elemental-prefix.py setup`, uruchamiane przez `install.sh`.
 7. Opcje uruchamiania: odczyt `shortcuts.vdf`, składana linijka, ostrzeżenia, listy gier w
-   komunikatach resetu i przejścia, ostrzeżenie o Protonie w grze, „Add to Steam”.
+   komunikatach resetu i przejścia, ostrzeżenie o Protonie w grze, „Add to Steam”. **Gotowe, sprawdzone
+   na Decku 2026-10-27.** Steam zapisuje zmianę Zgodności do `config.vdf` od razu. Ostrzeżenie o
+   Protonie porównuje grę z tym, czego używa większość gier na jej prefiksie (remis: z Protonem budowy
+   prefiksu; gra sama na prefiksie nie dostaje ostrzeżenia, bo może mieć nowszego Protona). Ostrzeżenie
+   „brakuje linijki” wypadło: aplikacja nie wie, czy gra kiedykolwiek ją miała. `steamos-add-to-steam`
+   działa bez przechwytywania wyjścia (polecenie `steam` potrafi trzymać je otwarte) i z limitem 30 s.
+   Skróty bez pełnej ścieżki (`flatpak` dla Chiaki, Protontricks) są pomijane przy szukaniu gry.
 8. Odczyt logu Protona.
 9. Wskazówki rejestru i import `.reg`.
 10. README (EN + PL) i zrzuty ekranu.

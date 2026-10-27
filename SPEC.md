@@ -221,7 +221,13 @@ game folder.
    next to it. Dolphin's entry and the menu entry are written by `elemental-prefix.py setup`,
    which `install.sh` runs.
 7. Launch Options: reading `shortcuts.vdf`, merged line, warnings, game lists in reset and move
-   messages, Proton per game warning, "Add to Steam".
+   messages, Proton per game warning, "Add to Steam". **Done, passed on the Deck 2026-10-27.**
+   Steam writes a changed Compatibility setting to `config.vdf` at once. The Proton warning compares a
+   game with what most games on its prefix use (a tie: with the Proton the prefix was built with; a
+   game alone on a prefix gets no warning, it may run a newer Proton). The "line is missing" warning
+   was dropped: the app cannot know a game ever had its line. `steamos-add-to-steam` runs without
+   captured output (the `steam` command can keep the pipe open) and a 30 s limit. Shortcuts without a
+   full path (`flatpak` for Chiaki, Protontricks) are ignored when looking for a game.
 8. Proton log reading.
 9. Registry hints and `.reg` import.
 10. README (EN + PL) and screenshots.
