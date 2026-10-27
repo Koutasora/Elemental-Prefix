@@ -822,8 +822,10 @@ def shared_folder(d):
 def game_prefix(exe, root):
     """(state, shortcut or None): which prefix the game's Steam shortcut points to."""
     exe_n = os.path.normcase(os.path.abspath(exe))
-    games = [g for g in shortcuts() if g["exe"].strip('"')]
-    norm = lambda g: os.path.normcase(os.path.abspath(g["exe"].strip('"')))
+    # Only shortcuts with a full path: "flatpak" (Chiaki, Protontricks...) would otherwise
+    # resolve against the current folder, which is the game's folder when started from Dolphin.
+    games = [g for g in shortcuts() if os.path.isabs(os.path.expanduser(g["exe"].strip('"')))]
+    norm = lambda g: os.path.normcase(os.path.normpath(os.path.expanduser(g["exe"].strip('"'))))
     hit = next((g for g in games if norm(g) == exe_n), None)
     if hit is None:
         root_n = os.path.normcase(root) + os.sep
