@@ -24,6 +24,7 @@ import datetime
 import mmap
 import os
 import re
+import shlex
 import shutil
 import struct
 import subprocess
@@ -266,15 +267,128 @@ def compat_path(opts):
     return os.path.normpath(os.path.expanduser(next(x for x in m.groups() if x is not None)))
 
 
-def games_using(folder):
-    """Names of non-Steam games whose Launch Options point STEAM_COMPAT_DATA_PATH at `folder`."""
+def games_on(folder):
+    """Non-Steam games whose Launch Options point STEAM_COMPAT_DATA_PATH at `folder`."""
     target = os.path.normpath(folder)
-    return [g["name"] for g in shortcuts() if compat_path(g["opts"]) == target]
+    return [g for g in shortcuts() if compat_path(g["opts"]) == target]
+
+
+def games_using(folder):
+    return [g["name"] for g in games_on(folder)]
 
 
 def games_text(folder):
     names = games_using(folder)
     return "Games using it: " + ", ".join(names) + "." if names else "No non-Steam game uses it yet."
+
+
+def game_tool(appid):
+    """Steam's compatibility tool for a game (its own setting, else Steam's default), or None."""
+    mapping = find_key(read_vdf(os.path.join(STEAM, "config/config.vdf")), "CompatToolMapping") or {}
+    entry = mapping.get(str(appid))
+    name = entry.get("name") if isinstance(entry, dict) else None
+    return name or steam_default_tool()
+
+
+def proton_warnings(name, game=None):
+    """Games on one prefix should run on one Proton: Proton rewrites the prefix to its own version
+    on every start. Warn about games whose Proton differs from what most games on the prefix use
+    (or, with a tie, from the Proton the prefix was built with). game: only this game (a shortcut),
+    counted as on the prefix even before its line is pasted."""
+    games = games_on(pdir(name))
+    if game and game["appid"] not in [g["appid"] for g in games]:
+        games.append(game)
+    tools = {g["name"]: game_tool(g["appid"]) for g in games if g["appid"] is not None}
+    if not tools:
+        return []
+    protons = find_protons()
+    built = current_tool(protons, load_conf(), name)
+    count = {}
+    for t in tools.values():
+        if t:
+            count[t] = count.get(t, 0) + 1
+    best = max(count.values(), default=0)
+    top = [t for t, n in count.items() if n == best]
+    target = top[0] if len(top) == 1 and best > 1 else None
+    shown = lambda key: next((t["name"] for t in protons if tool_matches(t, key)), key)
+    out = []
+    for g, t in tools.items():
+        if (game and g != game["name"]) or not t:
+            continue
+        if target is not None:
+            if t != target:
+                out.append(f"{g} runs on {shown(t)} - set {shown(target)} in Properties > Compatibility.")
+        elif built and len(tools) > 1 and not tool_matches(built, t):  # one game alone may run a newer one
+            out.append(f"{g} runs on {shown(t)}, the prefix was built with {built['name']} - "
+                       "keep all its games on one Proton.")
+    return out
+
+
+# ---------- Launch Options ----------
+
+ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+OUR_VARS = ("STEAM_COMPAT_DATA_PATH", "PROTON_LOG")
+
+
+def split_opts(opts):
+    """Launch Options -> (variables, wrappers, arguments, problems). %command% is the game; text
+    before it runs first (variables, then wrappers like ~/lsfg), text after it goes to the game.
+    Raises ValueError on unbalanced quotes."""
+    toks = shlex.split(opts)
+    problems = []
+    if toks.count("%command%") > 1:
+        problems.append("%command% appears more than once in the Launch Options.")
+    if "%command%" not in toks:
+        # Steam passes text without %command% to the game as arguments
+        if any(ASSIGN.match(t) for t in toks):
+            problems.append("The Launch Options have no %command%, so their variables do nothing.")
+        n = 0
+        while n < len(toks) and ASSIGN.match(toks[n]):
+            n += 1
+        return toks[:n], [], toks[n:], problems
+    cut = toks.index("%command%")
+    before, args = toks[:cut], [t for t in toks[cut + 1:] if t != "%command%"]
+    n = 0
+    while n < len(before) and ASSIGN.match(before[n]):
+        n += 1
+    variables, wrappers = before[:n], before[n:]
+    late = [t for t in wrappers + args if t.startswith("STEAM_COMPAT_DATA_PATH=")]
+    if late:
+        problems.append("STEAM_COMPAT_DATA_PATH stands after a wrapper or %command%, where it does nothing.")
+    return variables, [t for t in wrappers if t not in late], [t for t in args if t not in late], problems
+
+
+def quote(tok):
+    """Quote a token for Launch Options; ~/path stays bare so the shell still expands it."""
+    if not re.search(r"[\s'\"\\$`;&|<>()]", tok):
+        return tok
+    m = ASSIGN.match(tok)
+    if m:
+        v = tok[m.end():]
+        return m.group(0) + '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return shlex.quote(tok)
+
+
+def merged_line(opts, name, env=""):
+    """Our line merged into a game's current Launch Options: our variables first, the user's
+    variables, wrappers and arguments kept in order. Returns (line, problems with the old line)."""
+    try:
+        variables, wrappers, args, problems = split_opts(opts)
+    except ValueError:
+        return line(name, env), ["The old Launch Options have unbalanced quotes - replace the whole line."]
+    keep = [v for v in variables if v.split("=", 1)[0] not in OUR_VARS and v != "WINEDEBUG=fixme-all"]
+    ours = [f"STEAM_COMPAT_DATA_PATH={pdir(name)}", "PROTON_LOG=1"]
+    if not any(v.startswith("WINEDEBUG=") for v in keep):
+        ours.append("WINEDEBUG=fixme-all")
+    for e in shlex.split(env):
+        k, _, v = e.partition("=")
+        old = next((x for x in keep if x.startswith(k + "=")), None)
+        if old:  # merge DLL overrides with the user's own
+            have = old.split("=", 1)[1].split(";")
+            keep[keep.index(old)] = k + "=" + ";".join(have + [x for x in v.split(";") if x not in have])
+        else:
+            ours.append(e)
+    return " ".join(quote(t) for t in ours + keep + wrappers + ["%command%"] + args), problems
 
 
 # ---------- settings ----------
@@ -833,6 +947,16 @@ def report_lines(r, custom_components):
     out += r["hints"] + r["notes"]
     uses = r["uses"]
     out.append("Uses now: " + (f"the {uses} prefix" if uses in PREFIXES else uses) + ".")
+    game = r["shortcut"]
+    if game:
+        try:
+            out += split_opts(game["opts"])[3]
+        except ValueError:
+            out.append("The Launch Options have unbalanced quotes.")
+        if uses in PREFIXES:
+            out += proton_warnings(uses, game)
+    elif shutil.which("steamos-add-to-steam"):
+        out.append("Not in Steam yet: it can be added from here.")
     if exists("custom"):
         add = [v for v in VERBS if v in r["needs"] and v not in custom_components]
         if add:
@@ -870,8 +994,8 @@ def html(title, *paras):
     """Heading plus paragraphs, wrapped by hand: kdialog grows the window to fit long lines."""
     out = f"<h2>{escape(title)}</h2>"
     for p in paras:
-        if isinstance(p, tuple):  # ("code", text): one bold line, not wrapped
-            out += f"<p><b>{escape(p[1])}</b></p>"
+        if isinstance(p, tuple):  # ("code", text): bold, broken only at spaces (the clipboard has it whole)
+            out += "<p><b>" + "<br>".join(escape(x) for x in textwrap.wrap(p[1], 70, break_long_words=False)) + "</b></p>"
         else:
             out += "<p>" + "<br>".join(escape(x) for x in textwrap.wrap(p, 60)) + "</p>"
     return out
@@ -942,15 +1066,24 @@ def gui():
         kdialog("--error", html("Something went wrong", str(e)))
 
 
-def show_line(title, name, tool, *extra, env=""):
-    text = line(name, env)
+def show_line(title, name, tool, *extra, env="", game=None):
+    """Copy the line and show it. With a game (shortcut), the line is merged into its Launch Options."""
+    problems = []
+    if game:
+        text, problems = merged_line(game["opts"], name, env)
+        where = f"Paste this line over the whole Launch Options of {game['name']} (Properties > General)."
+        if game["opts"].strip():
+            where += " Your other settings in it are kept."
+    else:
+        text = line(name, env)
+        where = "Paste this line into the game's Launch Options (Steam > game > Properties > General)."
     copied = copy_line(text)
     kdialog("--msgbox", html(
         title,
-        "Paste this line into the game's Launch Options (Steam > game > Properties > General)."
-        + (" It is already in the clipboard:" if copied else ""),
+        where + (" It is already in the clipboard:" if copied else ""),
         ("code", text),
-        done_text(name, tool), *extra), size="760x420")
+        done_text(name, tool), *problems, *proton_warnings(name, game), *extra),
+        size="760x480")
 
 
 def pick_proton(protons, conf, name, title, *paras):
@@ -1001,13 +1134,13 @@ def gui_steps():
         gui_fixed(protons, conf, pick)
 
 
-def gui_fixed(protons, conf, name, env=""):
+def gui_fixed(protons, conf, name, env="", game=None, *extra):
     if exists(name):
         tool = current_tool(protons, conf, name)
         action, todo = plan(name, tool, PREFIXES[name][1], conf)
         if todo:  # an earlier install failed on some components
             with_progress(step_count(action, todo, False), run_apply, name, tool, PREFIXES[name][1])
-        show_line(f"{name.capitalize()} prefix", name, tool, games_text(pdir(name)), env=env)
+        show_line(f"{name.capitalize()} prefix", name, tool, *(extra or (games_text(pdir(name)),)), env=env, game=game)
         return
     tool = pick_proton(protons, conf, name, f"Proton for the {name} prefix",
                        "Games on this prefix must run on this Proton or a newer one.",
@@ -1016,7 +1149,7 @@ def gui_fixed(protons, conf, name, env=""):
         return
     components = PREFIXES[name][1]
     with_progress(step_count("create", components, False), run_apply, name, tool, components)
-    show_line(f"{name.capitalize()} prefix is ready", name, tool, env=env)
+    show_line(f"{name.capitalize()} prefix is ready", name, tool, *extra, env=env, game=game)
 
 
 def gui_custom(protons, conf):
@@ -1136,6 +1269,8 @@ def gui_check(path):
                           else f"Build the {rec} prefix (not built yet)")]
         add = [v for v in VERBS if v in r["needs"] and v not in conf["custom"]["components"]]
         items += ["custom", "Use the custom prefix" + (f" (adds {len(add)})" if add and exists("custom") else "")]
+        if r["shortcut"] is None and shutil.which("steamos-add-to-steam"):
+            items = ["steam", f"Add to Steam, then the {rec} prefix line"] + items
         pick = kdialog("--menu", html(f"Check: {os.path.basename(path)}", *report_lines(r, conf["custom"]["components"])),
                        *items, size="760x640")
         if pick is None:
@@ -1149,8 +1284,14 @@ def gui_check(path):
         if not protons:
             kdialog("--error", html("No Proton found", "Install a Proton in Steam first (Library > Tools)."))
             return
+        if pick == "steam":
+            if subprocess.run(["steamos-add-to-steam", path], capture_output=True).returncode != 0:
+                raise Error("Adding to Steam failed. Add it by hand: Steam > Games > Add a Non-Steam Game.")
+            gui_fixed(protons, conf, rec, r["env"], None,
+                      "Steam shows the game in its library in a few seconds. Paste the line there.")
+            return
         if pick == "line":
-            gui_fixed(protons, conf, rec, env=r["env"])
+            gui_fixed(protons, conf, rec, r["env"], r["shortcut"])
             return
         if exists("custom"):
             tool = current_tool(protons, conf, "custom")
@@ -1164,7 +1305,7 @@ def gui_check(path):
         action, todo = plan("custom", tool, components, conf)
         if action != "add" or todo:
             with_progress(step_count(action, todo, False), run_apply, "custom", tool, components)
-        show_line("Custom prefix is ready", "custom", tool, env=r["env"])
+        show_line("Custom prefix is ready", "custom", tool, env=r["env"], game=r["shortcut"])
     except Error as e:
         kdialog("--error", html("Something went wrong", str(e)))
 
