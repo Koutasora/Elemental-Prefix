@@ -46,7 +46,7 @@ STATE = os.path.join(BASE, "running")  # pid, start time, current step
 DESKTOP = os.path.join(HOME, ".local/share/applications/elemental-prefix.desktop")
 SERVICE_MENU = os.path.join(HOME, ".local/share/kio/servicemenus/elemental-prefix.desktop")
 SERVICE_MENU_REG = os.path.join(HOME, ".local/share/kio/servicemenus/elemental-prefix-reg.desktop")
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 FLATPAK_APP = "com.github.Matoking.protontricks"
 
 # (winetricks verb, label, preselected for custom) - install order follows this list
